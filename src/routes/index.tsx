@@ -1,26 +1,133 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { useSessionData } from "@/hooks/use-session-data";
+import { SessionSidebar } from "@/components/SessionSidebar";
+import { SegmentList } from "@/components/SegmentList";
+import { AnalyticsCards } from "@/components/AnalyticsCards";
+import { EditControls } from "@/components/EditControls";
+import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
+import { SessionMap } from "@/components/SessionMap";
 
 export const Route = createFileRoute("/")({
   component: Index,
+  head: () => ({
+    meta: [
+      { title: "PointTracer — GPS Session Review" },
+      { name: "description", content: "Premium GPS session analysis for point-based sports" },
+    ],
+  }),
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+function Index() {
+  const { data, loading, error } = useSessionData();
+  const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
+  const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
+  const [showFullRoute, setShowFullRoute] = useState(true);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-muted-foreground">Loading session…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-destructive text-sm">Failed to load session: {error}</p>
+      </div>
+    );
+  }
+
+  const selectedSegment = data.segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
+
+  const handleSelectSegment = (id: number) => {
+    setSelectedSegmentId((prev) => (prev === id ? null : id));
+    if (id !== selectedSegmentId) setShowFullRoute(false);
+  };
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="/placeholder.svg"
-        alt="Your app will live here!"
-      />
+    <div className="h-screen flex flex-col overflow-hidden">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-primary" />
+          <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setShowFullRoute(true);
+              setSelectedSegmentId(null);
+            }}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+              showFullRoute
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Full Session
+          </button>
+          <button
+            onClick={() => setShowFullRoute(false)}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+              !showFullRoute
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Segment View
+          </button>
+        </div>
+      </header>
+
+      {/* Main layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left sidebar */}
+        <aside className="w-72 flex flex-col gap-3 p-3 overflow-y-auto border-r border-border/30">
+          <SessionSidebar
+            activityName={data.activity_name}
+            sport={data.sport}
+            summary={data.summary}
+            segmentCount={data.segments.length}
+          />
+          <SegmentList
+            segments={data.segments}
+            selectedId={selectedSegmentId}
+            hoveredId={hoveredSegmentId}
+            onSelect={handleSelectSegment}
+            onHover={setHoveredSegmentId}
+          />
+        </aside>
+
+        {/* Center map + bottom panels */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 p-3 pb-0">
+            <SessionMap
+              points={data.points}
+              segments={data.segments}
+              selectedSegmentId={selectedSegmentId}
+              hoveredSegmentId={hoveredSegmentId}
+              showFullRoute={showFullRoute}
+            />
+          </div>
+          <div className="p-3 space-y-3">
+            <AnalyticsCards segment={selectedSegment} />
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <EditControls />
+              </div>
+              <div className="flex-1">
+                <MultiPlayerPanel />
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
-}
-
-function Index() {
-  return <PlaceholderIndex />;
 }
