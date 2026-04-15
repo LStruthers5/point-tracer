@@ -130,7 +130,7 @@ export function SessionMap({
           <Polyline
             positions={segmentRoute}
             pathOptions={{
-              color: "#06b6d4",
+              color: "#58bf79",
               weight: 4,
               opacity: 0.9,
             }}
@@ -142,7 +142,7 @@ export function SessionMap({
           <Polyline
             positions={animatedRoute}
             pathOptions={{
-              color: "#06b6d4",
+              color: "#58bf79",
               weight: 4,
               opacity: 1,
             }}
