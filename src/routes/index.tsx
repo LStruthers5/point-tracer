@@ -70,7 +70,7 @@ function Index() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Full Session
+            Session
           </button>
           <button
             onClick={() => setShowFullRoute(false)}
@@ -80,7 +80,7 @@ function Index() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Segment View
+            Focus Segment
           </button>
         </div>
       </header>
@@ -88,7 +88,7 @@ function Index() {
       {/* Main layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left sidebar */}
-        <aside className="w-72 flex flex-col gap-3 p-3 overflow-y-auto border-r border-border/30">
+        <aside className="w-64 flex flex-col gap-3 p-3 overflow-y-auto border-r border-border/30">
           <SessionSidebar
             activityName={data.activity_name}
             sport={data.sport}
