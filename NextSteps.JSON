@@ -1,0 +1,5 @@
+upload GPX → generate session JSON
+improve segment detection logic
+add trace visibility toggles
+add prev/next segment arrows
+redesign editing UI inspired by video timelines
