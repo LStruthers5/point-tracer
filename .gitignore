@@ -30,3 +30,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Backend Environments
+.venv/
+backend/.venv/
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
