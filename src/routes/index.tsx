@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -7,6 +7,8 @@ import { AnalyticsCards } from "@/components/AnalyticsCards";
 import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
 import { SessionMap } from "@/components/SessionMap";
+import { UploadPanel } from "@/components/UploadPanel";
+import type { SessionData } from "@/types/session";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -19,12 +21,25 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { data, loading, error } = useSessionData();
+  const { data: demoData, loading, error } = useSessionData();
+  const [data, setData] = useState<SessionData | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
   const [showFullRoute, setShowFullRoute] = useState(true);
 
-  if (loading) {
+  // Seed with demo data on first load
+  useEffect(() => {
+    if (demoData && !data) setData(demoData);
+  }, [demoData, data]);
+
+  const handleUploaded = (next: SessionData) => {
+    setData(next);
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setShowFullRoute(true);
+  };
+
+  if (loading && !data) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex items-center gap-3">
@@ -84,6 +99,8 @@ function Index() {
           </button>
         </div>
       </header>
+
+      <UploadPanel onUploaded={handleUploaded} />
 
       {/* Main layout */}
       <div className="flex-1 flex overflow-hidden">
