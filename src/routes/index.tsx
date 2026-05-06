@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -8,6 +8,8 @@ import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
 import { SessionMap } from "@/components/SessionMap";
 import { UploadPanel } from "@/components/UploadPanel";
+import { PlaybackControls } from "@/components/PlaybackControls";
+import { useSegmentPlayback } from "@/hooks/use-segment-playback";
 import type { SessionData } from "@/types/session";
 
 export const Route = createFileRoute("/")({
@@ -59,10 +61,28 @@ function Index() {
   }
 
   const selectedSegment = data.segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
+  const selectedIndex = useMemo(
+    () => data.segments.findIndex((s) => s.segment_id === selectedSegmentId),
+    [data.segments, selectedSegmentId],
+  );
+  const totalPoints = selectedSegment
+    ? selectedSegment.end_idx - selectedSegment.start_idx + 1
+    : 0;
+
+  const playback = useSegmentPlayback(totalPoints, selectedSegmentId);
 
   const handleSelectSegment = (id: number) => {
     setSelectedSegmentId((prev) => (prev === id ? null : id));
     if (id !== selectedSegmentId) setShowFullRoute(false);
+  };
+
+  const goToSegment = (offset: number) => {
+    if (selectedIndex < 0) return;
+    const next = data.segments[selectedIndex + offset];
+    if (next) {
+      setSelectedSegmentId(next.segment_id);
+      setShowFullRoute(false);
+    }
   };
 
   return (
@@ -130,11 +150,29 @@ function Index() {
               selectedSegmentId={selectedSegmentId}
               hoveredSegmentId={hoveredSegmentId}
               showFullRoute={showFullRoute}
+              playbackIdx={selectedSegment ? playback.idx : null}
+              playbackActive={playback.playing}
             />
           </div>
           <div className="p-3 space-y-3">
+            <PlaybackControls
+              segment={selectedSegment}
+              hasPrev={selectedIndex > 0}
+              hasNext={selectedIndex >= 0 && selectedIndex < data.segments.length - 1}
+              playing={playback.playing}
+              idx={playback.idx}
+              totalPoints={totalPoints}
+              speed={playback.speed}
+              onPlay={playback.play}
+              onPause={playback.pause}
+              onRestart={playback.restart}
+              onPrev={() => goToSegment(-1)}
+              onNext={() => goToSegment(1)}
+              onSeek={playback.seek}
+              onSpeedChange={playback.setSpeed}
+            />
             <AnalyticsCards segment={selectedSegment} />
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
                 <EditControls />
               </div>
@@ -148,3 +186,4 @@ function Index() {
     </div>
   );
 }
+
