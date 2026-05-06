@@ -61,10 +61,28 @@ function Index() {
   }
 
   const selectedSegment = data.segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
+  const selectedIndex = useMemo(
+    () => data.segments.findIndex((s) => s.segment_id === selectedSegmentId),
+    [data.segments, selectedSegmentId],
+  );
+  const totalPoints = selectedSegment
+    ? selectedSegment.end_idx - selectedSegment.start_idx + 1
+    : 0;
+
+  const playback = useSegmentPlayback(totalPoints, selectedSegmentId);
 
   const handleSelectSegment = (id: number) => {
     setSelectedSegmentId((prev) => (prev === id ? null : id));
     if (id !== selectedSegmentId) setShowFullRoute(false);
+  };
+
+  const goToSegment = (offset: number) => {
+    if (selectedIndex < 0) return;
+    const next = data.segments[selectedIndex + offset];
+    if (next) {
+      setSelectedSegmentId(next.segment_id);
+      setShowFullRoute(false);
+    }
   };
 
   return (
