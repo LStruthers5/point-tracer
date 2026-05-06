@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -8,6 +8,8 @@ import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
 import { SessionMap } from "@/components/SessionMap";
 import { UploadPanel } from "@/components/UploadPanel";
+import { PlaybackControls } from "@/components/PlaybackControls";
+import { useSegmentPlayback } from "@/hooks/use-segment-playback";
 import type { SessionData } from "@/types/session";
 
 export const Route = createFileRoute("/")({
