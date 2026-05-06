@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { MapContainer, TileLayer, Polyline, useMap } from "react-leaflet";
+import { useEffect } from "react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
 
@@ -35,11 +35,14 @@ export function SessionMapClient({
   selectedSegmentId,
   hoveredSegmentId,
   showFullRoute,
+  playbackIdx = null,
+  playbackActive = false,
 }: SessionMapClientProps) {
   const fullRoute = points.map((p) => [p.lat, p.lon] as [number, number]);
 
   const activeId = hoveredSegmentId ?? selectedSegmentId;
   const activeSeg = segments.find((s) => s.segment_id === activeId);
+  const selectedSeg = segments.find((s) => s.segment_id === selectedSegmentId);
 
   const segmentRoute = activeSeg
     ? points
@@ -57,44 +60,17 @@ export function SessionMapClient({
           max_lon: Math.max(...points.map((p) => p.lon)),
         };
 
-  const [animating, setAnimating] = useState(false);
-  const [animIdx, setAnimIdx] = useState(0);
-  const animRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playbackTrail =
+    selectedSeg && playbackIdx != null && playbackIdx >= 1
+      ? points
+          .slice(selectedSeg.start_idx, selectedSeg.start_idx + playbackIdx + 1)
+          .map((p) => [p.lat, p.lon] as [number, number])
+      : null;
 
-  const startAnimation = useCallback(() => {
-    if (!segmentRoute || segmentRoute.length < 2) return;
-
-    setAnimating(true);
-    setAnimIdx(2);
-
-    if (animRef.current) clearInterval(animRef.current);
-
-    animRef.current = setInterval(() => {
-      setAnimIdx((prev) => {
-        if (prev >= (segmentRoute?.length ?? 0)) {
-          if (animRef.current) clearInterval(animRef.current);
-          setAnimating(false);
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 80);
-  }, [segmentRoute]);
-
-  useEffect(() => {
-    return () => {
-      if (animRef.current) clearInterval(animRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    setAnimating(false);
-    setAnimIdx(0);
-    if (animRef.current) clearInterval(animRef.current);
-  }, [activeId]);
-
-  const animatedRoute =
-    animating && segmentRoute ? segmentRoute.slice(0, animIdx) : null;
+  const playbackPoint =
+    selectedSeg && playbackIdx != null
+      ? points[selectedSeg.start_idx + playbackIdx]
+      : null;
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
@@ -115,11 +91,7 @@ export function SessionMapClient({
         {showFullRoute && (
           <Polyline
             positions={fullRoute}
-            pathOptions={{
-              color: "oklch(0.5 0.02 250)",
-              weight: 2,
-              opacity: 0.4,
-            }}
+            pathOptions={{ color: "oklch(0.5 0.02 250)", weight: 2, opacity: 0.4 }}
           />
         )}
 
@@ -132,50 +104,42 @@ export function SessionMapClient({
                 positions={points
                   .slice(s.start_idx, s.end_idx + 1)
                   .map((p) => [p.lat, p.lon] as [number, number])}
-                pathOptions={{
-                  color: "oklch(0.4 0.02 250)",
-                  weight: 2,
-                  opacity: 0.25,
-                }}
+                pathOptions={{ color: "oklch(0.4 0.02 250)", weight: 2, opacity: 0.25 }}
               />
             ))}
 
-        {segmentRoute && !animating && (
+        {segmentRoute && (
           <Polyline
             positions={segmentRoute}
             pathOptions={{
               color: "#58bf79",
               weight: 4,
-              opacity: 0.9,
+              opacity: playbackTrail ? 0.35 : 0.9,
             }}
           />
         )}
 
-        {animatedRoute && animatedRoute.length >= 2 && (
+        {playbackTrail && playbackTrail.length >= 2 && (
           <Polyline
-            positions={animatedRoute}
+            positions={playbackTrail}
+            pathOptions={{ color: "#58bf79", weight: 5, opacity: 1 }}
+          />
+        )}
+
+        {playbackPoint && (
+          <CircleMarker
+            center={[playbackPoint.lat, playbackPoint.lon]}
+            radius={6}
             pathOptions={{
-              color: "#58bf79",
-              weight: 4,
-              opacity: 1,
+              color: "#ffffff",
+              weight: 2,
+              fillColor: "#58bf79",
+              fillOpacity: 1,
             }}
+            className={playbackActive ? "pulse-glow" : ""}
           />
         )}
       </MapContainer>
-
-      <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-2">
-        {activeSeg && (
-          <button
-            onClick={startAnimation}
-            disabled={animating}
-            className={`glass-card cursor-pointer rounded-xl px-3 py-2 text-xs font-medium text-foreground transition-all hover:border-primary/30 ${
-              animating ? "pulse-glow" : ""
-            }`}
-          >
-            {animating ? "▶ Playing…" : "▶ Play"}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
