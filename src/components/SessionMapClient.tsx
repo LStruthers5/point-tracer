@@ -9,6 +9,8 @@ interface SessionMapClientProps {
   selectedSegmentId: number | null;
   hoveredSegmentId: number | null;
   showFullRoute: boolean;
+  playbackIdx?: number | null;
+  playbackActive?: boolean;
 }
 
 function FitBounds({ bbox }: { bbox: SegmentBbox }) {
