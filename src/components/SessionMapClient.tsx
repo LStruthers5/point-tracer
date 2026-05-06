@@ -3,6 +3,12 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from "react-l
 import "leaflet/dist/leaflet.css";
 import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
 
+const DEFAULT_ZOOM = 17;
+const SESSION_FIT_MAX_ZOOM = 18;
+const FOCUSED_FIT_MAX_ZOOM = 22;
+const MAP_MAX_ZOOM = 22;
+const TILE_NATIVE_MAX_ZOOM = 20;
+
 interface SessionMapClientProps {
   points: SessionPoint[];
   segments: SessionSegment[];
@@ -10,10 +16,11 @@ interface SessionMapClientProps {
   hoveredSegmentId: number | null;
   showFullRoute: boolean;
   playbackIdx?: number | null;
+  sessionPlaybackIdx?: number | null;
   playbackActive?: boolean;
 }
 
-function FitBounds({ bbox }: { bbox: SegmentBbox }) {
+function FitBounds({ bbox, focused }: { bbox: SegmentBbox; focused: boolean }) {
   const map = useMap();
 
   useEffect(() => {
@@ -22,9 +29,12 @@ function FitBounds({ bbox }: { bbox: SegmentBbox }) {
         [bbox.min_lat, bbox.min_lon],
         [bbox.max_lat, bbox.max_lon],
       ],
-      { padding: [40, 40], maxZoom: 18 }
+      {
+        padding: focused ? [12, 12] : [40, 40],
+        maxZoom: focused ? FOCUSED_FIT_MAX_ZOOM : SESSION_FIT_MAX_ZOOM,
+      },
     );
-  }, [map, bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon]);
+  }, [map, bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon, focused]);
 
   return null;
 }
@@ -36,6 +46,7 @@ export function SessionMapClient({
   hoveredSegmentId,
   showFullRoute,
   playbackIdx = null,
+  sessionPlaybackIdx = null,
   playbackActive = false,
 }: SessionMapClientProps) {
   const fullRoute = points.map((p) => [p.lat, p.lon] as [number, number]);
@@ -43,6 +54,7 @@ export function SessionMapClient({
   const activeId = hoveredSegmentId ?? selectedSegmentId;
   const activeSeg = segments.find((s) => s.segment_id === activeId);
   const selectedSeg = segments.find((s) => s.segment_id === selectedSegmentId);
+  const focused = Boolean(activeSeg && !showFullRoute);
 
   const segmentRoute = activeSeg
     ? points
@@ -51,7 +63,7 @@ export function SessionMapClient({
     : null;
 
   const bbox: SegmentBbox =
-    activeSeg && !showFullRoute
+    focused && activeSeg
       ? activeSeg.bbox
       : {
           min_lat: Math.min(...points.map((p) => p.lat)),
@@ -61,22 +73,27 @@ export function SessionMapClient({
         };
 
   const playbackTrail =
-    selectedSeg && playbackIdx != null && playbackIdx >= 1
-      ? points
-          .slice(selectedSeg.start_idx, selectedSeg.start_idx + playbackIdx + 1)
-          .map((p) => [p.lat, p.lon] as [number, number])
-      : null;
+    showFullRoute && sessionPlaybackIdx != null && sessionPlaybackIdx >= 1
+      ? points.slice(0, sessionPlaybackIdx + 1).map((p) => [p.lat, p.lon] as [number, number])
+      : selectedSeg && playbackIdx != null && playbackIdx >= 1
+        ? points
+            .slice(selectedSeg.start_idx, selectedSeg.start_idx + playbackIdx + 1)
+            .map((p) => [p.lat, p.lon] as [number, number])
+        : null;
 
   const playbackPoint =
-    selectedSeg && playbackIdx != null
-      ? points[selectedSeg.start_idx + playbackIdx]
-      : null;
+    showFullRoute && sessionPlaybackIdx != null
+      ? points[sessionPlaybackIdx]
+      : selectedSeg && playbackIdx != null
+        ? points[selectedSeg.start_idx + playbackIdx]
+        : null;
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
       <MapContainer
         center={[points[0]?.lat ?? 0, points[0]?.lon ?? 0]}
-        zoom={17}
+        zoom={DEFAULT_ZOOM}
+        maxZoom={MAP_MAX_ZOOM}
         className="h-full w-full"
         zoomControl={true}
         attributionControl={true}
@@ -84,9 +101,11 @@ export function SessionMapClient({
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={TILE_NATIVE_MAX_ZOOM}
         />
 
-        <FitBounds bbox={bbox} />
+        <FitBounds bbox={bbox} focused={focused} />
 
         {showFullRoute && (
           <Polyline

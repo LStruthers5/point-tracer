@@ -8,14 +8,14 @@ interface SessionMapProps {
   hoveredSegmentId: number | null;
   showFullRoute: boolean;
   playbackIdx?: number | null;
+  sessionPlaybackIdx?: number | null;
   playbackActive?: boolean;
 }
 
 type SessionMapClientComponent = React.ComponentType<SessionMapProps>;
 
 export function SessionMap(props: SessionMapProps) {
-  const [MapComponent, setMapComponent] =
-    useState<SessionMapClientComponent | null>(null);
+  const [MapComponent, setMapComponent] = useState<SessionMapClientComponent | null>(null);
 
   useEffect(() => {
     let mounted = true;
