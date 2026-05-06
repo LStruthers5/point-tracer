@@ -150,10 +150,42 @@ function Index() {
               selectedSegmentId={selectedSegmentId}
               hoveredSegmentId={hoveredSegmentId}
               showFullRoute={showFullRoute}
+              playbackIdx={selectedSegment ? playback.idx : null}
+              playbackActive={playback.playing}
             />
           </div>
           <div className="p-3 space-y-3">
+            <PlaybackControls
+              segment={selectedSegment}
+              hasPrev={selectedIndex > 0}
+              hasNext={selectedIndex >= 0 && selectedIndex < data.segments.length - 1}
+              playing={playback.playing}
+              idx={playback.idx}
+              totalPoints={totalPoints}
+              speed={playback.speed}
+              onPlay={playback.play}
+              onPause={playback.pause}
+              onRestart={playback.restart}
+              onPrev={() => goToSegment(-1)}
+              onNext={() => goToSegment(1)}
+              onSeek={playback.seek}
+              onSpeedChange={playback.setSpeed}
+            />
             <AnalyticsCards segment={selectedSegment} />
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1">
+                <EditControls />
+              </div>
+              <div className="flex-1">
+                <MultiPlayerPanel />
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
             <div className="flex gap-3">
               <div className="flex-1">
                 <EditControls />
