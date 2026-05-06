@@ -7,6 +7,8 @@ interface SessionMapProps {
   selectedSegmentId: number | null;
   hoveredSegmentId: number | null;
   showFullRoute: boolean;
+  playbackIdx?: number | null;
+  playbackActive?: boolean;
 }
 
 type SessionMapClientComponent = React.ComponentType<SessionMapProps>;
