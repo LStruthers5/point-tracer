@@ -186,17 +186,4 @@ function Index() {
     </div>
   );
 }
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <EditControls />
-              </div>
-              <div className="flex-1">
-                <MultiPlayerPanel />
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    </div>
-  );
-}
+
