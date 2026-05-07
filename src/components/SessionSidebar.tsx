@@ -1,4 +1,5 @@
 import type { SessionSummary } from "@/types/session";
+import type { UnitSystem } from "@/types/app-settings";
 import { formatDuration, formatDistance } from "@/lib/format";
 
 interface SessionSidebarProps {
@@ -6,9 +7,16 @@ interface SessionSidebarProps {
   sport: string;
   summary: SessionSummary;
   segmentCount: number;
+  units?: UnitSystem;
 }
 
-export function SessionSidebar({ activityName, sport, summary, segmentCount }: SessionSidebarProps) {
+export function SessionSidebar({
+  activityName,
+  sport,
+  summary,
+  segmentCount,
+  units = "metric",
+}: SessionSidebarProps) {
   return (
     <div className="glass-card rounded-2xl p-5 space-y-5">
       <div>
@@ -23,7 +31,7 @@ export function SessionSidebar({ activityName, sport, summary, segmentCount }: S
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Duration" value={formatDuration(summary.duration_min * 60)} />
-        <StatCard label="Distance" value={formatDistance(summary.distance_m)} />
+        <StatCard label="Distance" value={formatDistance(summary.distance_m, units)} />
         <StatCard label="Segments" value={String(segmentCount)} />
         <StatCard label="Trackpoints" value={summary.trackpoint_count.toLocaleString()} />
       </div>

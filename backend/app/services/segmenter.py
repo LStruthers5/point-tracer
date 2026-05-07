@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import math
 import statistics
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,34 @@ import gpxpy
 
 
 EARTH_RADIUS_M = 6_371_000
+
+
+@dataclass(frozen=True)
+class ResetArea:
+    lat: float
+    lon: float
+
+
+@dataclass(frozen=True)
+class SegmenterOptions:
+    pause_speed_mps: float = 0.7
+    min_pause_s: float = 45.0
+    min_active_points: int = 6
+    reset_area: ResetArea | None = None
+    reset_area_pause_distance_m: float = 12.0
+    debug: bool = False
+
+
+@dataclass(frozen=True)
+class SegmenterSignals:
+    """
+    Container for derived segmentation signals.
+    Later multiplayer-aware signals can be added here without replacing the
+    single-player heuristic splitter.
+    """
+
+    points: list[dict[str, Any]]
+    reset_area: ResetArea | None = None
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -101,7 +130,10 @@ def parse_gpx_bytes(file_bytes: bytes) -> list[dict[str, Any]]:
     return raw_points
 
 
-def enrich_points(raw_points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def enrich_points(
+    raw_points: list[dict[str, Any]],
+    reset_area: ResetArea | None = None,
+) -> list[dict[str, Any]]:
     """
     Add derived fields:
     - dt_s
@@ -109,6 +141,7 @@ def enrich_points(raw_points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     - speed_mps
     - x_m / y_m local coordinates
     - speed_smooth_mps
+    - reset_area_distance_m, when a reset area is provided
     """
     lat0 = sum(p["lat"] for p in raw_points) / len(raw_points)
     lon0 = sum(p["lon"] for p in raw_points) / len(raw_points)
@@ -141,16 +174,24 @@ def enrich_points(raw_points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         x_m = math.radians(point["lon"] - lon0) * EARTH_RADIUS_M * math.cos(math.radians(lat0))
         y_m = math.radians(point["lat"] - lat0) * EARTH_RADIUS_M
 
-        enriched.append(
-            {
-                **point,
-                "dt_s": dt_s,
-                "dist_m": dist_m,
-                "speed_mps": speed_mps,
-                "x_m": x_m,
-                "y_m": y_m,
-            }
-        )
+        enriched_point = {
+            **point,
+            "dt_s": dt_s,
+            "dist_m": dist_m,
+            "speed_mps": speed_mps,
+            "x_m": x_m,
+            "y_m": y_m,
+        }
+
+        if reset_area is not None:
+            enriched_point["reset_area_distance_m"] = haversine_m(
+                point["lat"],
+                point["lon"],
+                reset_area.lat,
+                reset_area.lon,
+            )
+
+        enriched.append(enriched_point)
 
     smoothed = rolling_median([p["speed_mps"] for p in enriched], window=7)
 
@@ -160,22 +201,39 @@ def enrich_points(raw_points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return enriched
 
 
+def build_segmenter_signals(
+    raw_points: list[dict[str, Any]],
+    options: SegmenterOptions,
+) -> SegmenterSignals:
+    return SegmenterSignals(
+        points=enrich_points(raw_points, reset_area=options.reset_area),
+        reset_area=options.reset_area,
+    )
+
+
 def split_segments(
-    points: list[dict[str, Any]],
-    pause_speed_mps: float = 0.7,
-    min_pause_s: float = 45.0,
-    min_active_points: int = 6,
-) -> list[tuple[int, int]]:
+    signals: SegmenterSignals,
+    options: SegmenterOptions,
+) -> tuple[list[tuple[int, int]], dict[str, Any] | None]:
     """
     Split the session into active movement segments by detecting long low-speed windows.
     This returns only the active segments, not the pauses themselves.
     """
+    points = signals.points
     pause_runs: list[tuple[int, int]] = []
+    pause_candidates: list[dict[str, Any]] = []
     in_run = False
     run_start = 0
 
     for i, point in enumerate(points):
-        is_pause = point["speed_smooth_mps"] < pause_speed_mps
+        speed_pause = point["speed_smooth_mps"] < options.pause_speed_mps
+        reset_distance = point.get("reset_area_distance_m")
+        reset_pause = (
+            reset_distance is not None
+            and reset_distance <= options.reset_area_pause_distance_m
+            and point["speed_smooth_mps"] < options.pause_speed_mps * 1.5
+        )
+        is_pause = speed_pause or reset_pause
 
         if is_pause and not in_run:
             in_run = True
@@ -183,15 +241,55 @@ def split_segments(
 
         next_is_pause = False
         if i < len(points) - 1:
-            next_is_pause = points[i + 1]["speed_smooth_mps"] < pause_speed_mps
+            next_point = points[i + 1]
+            next_reset_distance = next_point.get("reset_area_distance_m")
+            next_speed_pause = next_point["speed_smooth_mps"] < options.pause_speed_mps
+            next_reset_pause = (
+                next_reset_distance is not None
+                and next_reset_distance <= options.reset_area_pause_distance_m
+                and next_point["speed_smooth_mps"] < options.pause_speed_mps * 1.5
+            )
+            next_is_pause = next_speed_pause or next_reset_pause
 
         if in_run and (i == len(points) - 1 or not next_is_pause):
             run_end = i
             duration_s = (
                 points[run_end]["time"] - points[run_start]["time"]
             ).total_seconds()
+            run_points = points[run_start : run_end + 1]
+            speed_pause_points = sum(
+                1
+                for p in run_points
+                if p["speed_smooth_mps"] < options.pause_speed_mps
+            )
+            reset_pause_points = sum(
+                1
+                for p in run_points
+                if p.get("reset_area_distance_m") is not None
+                and p["reset_area_distance_m"] <= options.reset_area_pause_distance_m
+                and p["speed_smooth_mps"] < options.pause_speed_mps * 1.5
+            )
+            accepted = duration_s >= options.min_pause_s
 
-            if duration_s >= min_pause_s:
+            pause_candidates.append(
+                {
+                    "start_idx": run_start,
+                    "end_idx": run_end,
+                    "start_time": points[run_start]["time"].isoformat(),
+                    "end_time": points[run_end]["time"].isoformat(),
+                    "duration_s": round(duration_s, 1),
+                    "accepted": accepted,
+                    "speed_pause_points": speed_pause_points,
+                    "reset_pause_points": reset_pause_points,
+                    "reason": (
+                        "accepted_pause_window"
+                        if accepted
+                        else "rejected_below_min_pause_s"
+                    ),
+                }
+            )
+
+            if accepted:
                 pause_runs.append((run_start, run_end))
 
             in_run = False
@@ -203,38 +301,80 @@ def split_segments(
         active_start = prev_end
         active_end = start - 1
 
-        if active_end - active_start + 1 >= min_active_points:
+        if active_end - active_start + 1 >= options.min_active_points:
             segments.append((active_start, active_end))
 
         prev_end = end + 1
 
-    if len(points) - prev_end >= min_active_points:
+    if len(points) - prev_end >= options.min_active_points:
         segments.append((prev_end, len(points) - 1))
 
     if not segments:
         segments = [(0, len(points) - 1)]
 
-    return segments
+    debug = None
+    if options.debug:
+        debug = {
+            "thresholds": {
+                "pause_speed_mps": options.pause_speed_mps,
+                "min_pause_s": options.min_pause_s,
+                "min_active_points": options.min_active_points,
+                "reset_area_pause_distance_m": options.reset_area_pause_distance_m,
+            },
+            "reset_area": (
+                {"lat": signals.reset_area.lat, "lon": signals.reset_area.lon}
+                if signals.reset_area
+                else None
+            ),
+            "pause_windows": pause_candidates,
+            "accepted_pause_windows": [
+                {
+                    "start_idx": start,
+                    "end_idx": end,
+                    "duration_s": round(
+                        (points[end]["time"] - points[start]["time"]).total_seconds(),
+                        1,
+                    ),
+                }
+                for start, end in pause_runs
+            ],
+            "candidate_segments": [
+                {
+                    "start_idx": start,
+                    "end_idx": end,
+                    "point_count": end - start + 1,
+                    "start_time": points[start]["time"].isoformat(),
+                    "end_time": points[end]["time"].isoformat(),
+                }
+                for start, end in segments
+            ],
+        }
+
+    return segments, debug
 
 
 def build_session_data(
-    points: list[dict[str, Any]],
+    signals: SegmenterSignals,
     source_file: str,
+    options: SegmenterOptions,
     sport: str | None = None,
 ) -> dict[str, Any]:
+    points = signals.points
     if not points:
         raise ValueError("No points available to build session data.")
 
     sport = sport
-    segments = split_segments(points)
+    segments, debug = split_segments(signals, options)
 
     total_dist_m = sum(p["dist_m"] for p in points)
     duration_min = (
         points[-1]["time"] - points[0]["time"]
     ).total_seconds() / 60.0
 
-    session_points = [
-        {
+    session_points = []
+
+    for p in points:
+        session_point = {
             "lat": round(p["lat"], 7),
             "lon": round(p["lon"], 7),
             "x_m": round(p["x_m"], 2),
@@ -243,8 +383,14 @@ def build_session_data(
             "speed_mps": round(p["speed_mps"], 3),
             "speed_smooth_mps": round(p["speed_smooth_mps"], 3),
         }
-        for p in points
-    ]
+
+        if "reset_area_distance_m" in p:
+            session_point["reset_area_distance_m"] = round(
+                p["reset_area_distance_m"],
+                2,
+            )
+
+        session_points.append(session_point)
 
     session_segments: list[dict[str, Any]] = []
 
@@ -257,24 +403,39 @@ def build_session_data(
         ).total_seconds()
         distance_m = sum(p["dist_m"] for p in seg_points_raw)
         mean_speed_mps = distance_m / duration_s if duration_s > 0 else 0.0
+        reset_distances = [
+            p["reset_area_distance_m"]
+            for p in seg_points_raw
+            if "reset_area_distance_m" in p
+        ]
 
-        session_segments.append(
-            {
-                "segment_id": segment_id,
-                "label": f"Segment {segment_id}",
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "start_time": seg_points_raw[0]["time"].isoformat(),
-                "end_time": seg_points_raw[-1]["time"].isoformat(),
-                "duration_s": round(duration_s, 1),
-                "distance_m": round(distance_m, 1),
-                "mean_speed_mps": round(mean_speed_mps, 3),
-                "point_count": len(seg_points_raw),
-                "bbox": compute_bbox(seg_points_view),
+        session_segment = {
+            "segment_id": segment_id,
+            "label": f"Segment {segment_id}",
+            "start_idx": start_idx,
+            "end_idx": end_idx,
+            "start_time": seg_points_raw[0]["time"].isoformat(),
+            "end_time": seg_points_raw[-1]["time"].isoformat(),
+            "duration_s": round(duration_s, 1),
+            "distance_m": round(distance_m, 1),
+            "mean_speed_mps": round(mean_speed_mps, 3),
+            "point_count": len(seg_points_raw),
+            "bbox": compute_bbox(seg_points_view),
+        }
+        if reset_distances:
+            session_segment["reset_area_stats"] = {
+                "min_distance_m": round(min(reset_distances), 1),
+                "mean_distance_m": round(
+                    sum(reset_distances) / len(reset_distances),
+                    1,
+                ),
+                "start_distance_m": round(reset_distances[0], 1),
+                "end_distance_m": round(reset_distances[-1], 1),
             }
-        )
 
-    return {
+        session_segments.append(session_segment)
+
+    session_data = {
         "activity_name": Path(source_file).stem,
         "source_file": source_file,
         "sport": sport,
@@ -287,22 +448,37 @@ def build_session_data(
             "bbox": compute_bbox(session_points),
         },
         "segmentation_method": {
-            "type": "heuristic_pause_split_v1",
+            "type": "heuristic_pause_split_v2",
             "notes": (
                 "Segments are created by detecting long low-speed windows and "
-                "splitting active movement periods around them."
+                "splitting active movement periods around them. Optional reset-area "
+                "distance can support pause detection when supplied."
             ),
+            "reset_area_enabled": options.reset_area is not None,
         },
         "segments": session_segments,
         "points": session_points,
     }
 
+    if debug is not None:
+        session_data["segmentation_debug"] = debug
 
-def segment_gpx_bytes(file_bytes: bytes, filename: str, sport:str) -> dict[str, Any]:
+    return session_data
+
+
+def segment_gpx_bytes(
+    file_bytes: bytes,
+    filename: str,
+    sport: str,
+    *,
+    reset_area: ResetArea | None = None,
+    debug: bool = False,
+) -> dict[str, Any]:
     """
     Main entry point for the backend upload flow.
     Accepts GPX bytes and returns a SessionData-shaped dictionary.
     """
     raw_points = parse_gpx_bytes(file_bytes)
-    enriched_points = enrich_points(raw_points)
-    return build_session_data(enriched_points, source_file=filename, sport=sport)
+    options = SegmenterOptions(reset_area=reset_area, debug=debug)
+    signals = build_segmenter_signals(raw_points, options)
+    return build_session_data(signals, source_file=filename, sport=sport, options=options)

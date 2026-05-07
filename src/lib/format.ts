@@ -1,15 +1,25 @@
+import type { UnitSystem } from "@/types/app-settings";
+
 export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-export function formatDistance(meters: number): string {
+export function formatDistance(meters: number, units: UnitSystem = "metric"): string {
+  if (units === "imperial") {
+    const feet = meters * 3.28084;
+    if (feet >= 5280) return `${(feet / 5280).toFixed(2)} mi`;
+    return `${Math.round(feet)} ft`;
+  }
+
   if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
   return `${Math.round(meters)} m`;
 }
 
-export function formatSpeed(mps: number): string {
+export function formatSpeed(mps: number, units: UnitSystem = "metric"): string {
+  if (units === "imperial") return `${(mps * 2.23694).toFixed(1)} mph`;
+
   return `${(mps * 3.6).toFixed(1)} km/h`;
 }
 

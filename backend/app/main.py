@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.segmenter import segment_gpx_bytes
+from app.services.segmenter import ResetArea, segment_gpx_bytes
 
 
 app = FastAPI(
@@ -44,6 +44,9 @@ def health_check() -> dict[str, str]:
 async def upload_gpx(
     file: UploadFile = File(...),
     sport: str = Form(...),
+    reset_area_lat: float | None = Form(default=None),
+    reset_area_lon: float | None = Form(default=None),
+    debug: bool = Form(default=False),
 ) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
@@ -58,6 +61,18 @@ async def upload_gpx(
     normalized_sport = sport.strip().lower()
     if not normalized_sport:
         raise HTTPException(status_code=400, detail="Sport is required.")
+
+    if (reset_area_lat is None) != (reset_area_lon is None):
+        raise HTTPException(
+            status_code=400,
+            detail="reset_area_lat and reset_area_lon must be provided together.",
+        )
+
+    reset_area = (
+        ResetArea(lat=reset_area_lat, lon=reset_area_lon)
+        if reset_area_lat is not None and reset_area_lon is not None
+        else None
+    )
 
     try:
         file_bytes = await file.read()
@@ -78,6 +93,8 @@ async def upload_gpx(
             file_bytes=file_bytes,
             filename=file.filename,
             sport=normalized_sport,
+            reset_area=reset_area,
+            debug=debug,
         )
         return session_data
 

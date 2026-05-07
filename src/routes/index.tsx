@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { Download } from "lucide-react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -9,11 +10,18 @@ import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
 import { SessionMap } from "@/components/SessionMap";
 import { UploadPanel } from "@/components/UploadPanel";
 import { PlaybackControls } from "@/components/PlaybackControls";
+import { PaceGraph } from "@/components/PaceGraph";
+import { SettingsMenu } from "@/components/SettingsMenu";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
+import { Button } from "@/components/ui/button";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useSegmentPlayback } from "@/hooks/use-segment-playback";
+import type { MapDisplayOptions } from "@/types/map-display";
+import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
 import type { SessionData, SessionPoint, SessionSegment } from "@/types/session";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
+const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -31,6 +39,20 @@ function Index() {
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
   const [showFullRoute, setShowFullRoute] = useState(true);
+  const [graphPreviewIdx, setGraphPreviewIdx] = useState<number | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("light", settings.theme === "light");
+    root.classList.toggle("dark", settings.theme === "dark");
+    root.classList.toggle("reduced-motion", settings.reducedAnimation);
+  }, [settings.reducedAnimation, settings.theme]);
 
   // Seed with demo data on first load
   useEffect(() => {
@@ -45,22 +67,48 @@ function Index() {
   );
   const totalPoints = selectedSegment ? selectedSegment.end_idx - selectedSegment.start_idx + 1 : 0;
   const sessionTotalPoints = data?.points.length ?? 0;
-  const sessionPlayback = useSegmentPlayback(sessionTotalPoints, data?.source_file ?? null);
+  const sessionPlayback = useSegmentPlayback(
+    sessionTotalPoints,
+    data?.source_file ?? null,
+    settings.defaultPlaybackSpeed,
+  );
+  const effectiveSessionIdx = graphPreviewIdx ?? sessionPlayback.idx;
   const playheadSegment =
     segments.find(
       (segment) =>
-        sessionPlayback.idx >= segment.start_idx && sessionPlayback.idx <= segment.end_idx,
+        effectiveSessionIdx >= segment.start_idx && effectiveSessionIdx <= segment.end_idx,
     ) ?? null;
   const mapSelectedSegmentId = showFullRoute
     ? (selectedSegmentId ?? playheadSegment?.segment_id ?? null)
     : selectedSegmentId;
 
-  const playback = useSegmentPlayback(totalPoints, selectedSegmentId);
+  const playback = useSegmentPlayback(
+    totalPoints,
+    selectedSegmentId,
+    settings.defaultPlaybackSpeed,
+  );
+  const focusedPreviewOffset =
+    selectedSegment &&
+    graphPreviewIdx != null &&
+    graphPreviewIdx >= selectedSegment.start_idx &&
+    graphPreviewIdx <= selectedSegment.end_idx
+      ? graphPreviewIdx - selectedSegment.start_idx
+      : null;
+
+  const updateMapDisplayOptions = (options: MapDisplayOptions) => {
+    setSettings((current) => ({
+      ...current,
+      defaultTraceMode: options.traceMode,
+      lineColor: options.lineColor,
+      lineColorMode: mapDisplayOptionsToLineColorMode(options),
+    }));
+  };
 
   const handleUploaded = (next: SessionData) => {
     setData(next);
     setSelectedSegmentId(null);
     setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
     setShowFullRoute(true);
     sessionPlayback.seek(0);
     sessionPlayback.pause();
@@ -86,11 +134,13 @@ function Index() {
   }
 
   const handleSelectSegment = (id: number) => {
+    setGraphPreviewIdx(null);
     setSelectedSegmentId((prev) => (prev === id ? null : id));
     if (id !== selectedSegmentId) setShowFullRoute(false);
   };
 
   const handleSelectTimelineSegment = (id: number) => {
+    setGraphPreviewIdx(null);
     setSelectedSegmentId((prev) => (prev === id ? null : id));
     const next = segments.find((segment) => segment.segment_id === id);
     if (next && id !== selectedSegmentId) sessionPlayback.seek(next.start_idx);
@@ -100,7 +150,7 @@ function Index() {
   const splitSelectedSegment = () => {
     if (!data || !selectedSegment || selectedSegment.point_count < 4) return;
 
-    const splitIdx = sessionPlayback.idx;
+    const splitIdx = Math.round(sessionPlayback.idx);
     if (splitIdx <= selectedSegment.start_idx || splitIdx >= selectedSegment.end_idx) return;
 
     const nextId = Math.max(...data.segments.map((segment) => segment.segment_id)) + 1;
@@ -129,7 +179,83 @@ function Index() {
     });
     setSelectedSegmentId(first.segment_id);
     setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
     setShowFullRoute(true);
+  };
+
+  const updateSegmentRange = (segmentId: number, startIdx: number, endIdx: number) => {
+    if (!data) return;
+    const segment = data.segments.find((candidate) => candidate.segment_id === segmentId);
+    if (!segment || endIdx <= startIdx) return;
+
+    const updated = buildSegmentFromRange({
+      points: data.points,
+      source: segment,
+      startIdx,
+      endIdx,
+      id: segment.segment_id,
+      label: segment.label,
+    });
+
+    setData({
+      ...data,
+      segments: data.segments
+        .map((candidate) => (candidate.segment_id === segmentId ? updated : candidate))
+        .sort((a, b) => a.start_idx - b.start_idx),
+    });
+    setSelectedSegmentId(segmentId);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setShowFullRoute(true);
+    sessionPlayback.seek(startIdx);
+  };
+
+  const focusSelectedSegment = () => {
+    if (!selectedSegment) return;
+    setGraphPreviewIdx(null);
+    setShowFullRoute(false);
+  };
+
+  const deleteSelectedSegment = () => {
+    if (!data || !selectedSegment) return;
+
+    setData({
+      ...data,
+      segments: data.segments.filter(
+        (segment) => segment.segment_id !== selectedSegment.segment_id,
+      ),
+    });
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+  };
+
+  const addSegmentAtPlayhead = (startIdx: number, endIdx: number) => {
+    if (!data || data.points.length < 2) return;
+    if (endIdx <= startIdx) return;
+
+    const nextId =
+      data.segments.length > 0
+        ? Math.max(...data.segments.map((segment) => segment.segment_id)) + 1
+        : 1;
+    const newSegment = buildSegmentFromRange({
+      points: data.points,
+      source: data.segments[0] ?? createFallbackSegment(data.points),
+      startIdx,
+      endIdx,
+      id: nextId,
+      label: `Segment ${nextId}`,
+    });
+
+    setData({
+      ...data,
+      segments: [...data.segments, newSegment].sort((a, b) => a.start_idx - b.start_idx),
+    });
+    setSelectedSegmentId(nextId);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setShowFullRoute(true);
+    sessionPlayback.seek(startIdx);
   };
 
   const goToSegment = (offset: number) => {
@@ -137,8 +263,57 @@ function Index() {
     const next = segments[selectedIndex + offset];
     if (next) {
       setSelectedSegmentId(next.segment_id);
+      setGraphPreviewIdx(null);
       setShowFullRoute(false);
     }
+  };
+
+  const seekSessionGraphPoint = (idx: number) => {
+    sessionPlayback.seek(idx);
+  };
+
+  const seekFocusGraphPoint = (idx: number) => {
+    if (!selectedSegment) return;
+    if (idx < selectedSegment.start_idx || idx > selectedSegment.end_idx) return;
+
+    playback.seek(idx - selectedSegment.start_idx);
+  };
+
+  const exportCorrectedBoundaries = () => {
+    if (!data) return;
+
+    const payload = {
+      activity_name: data.activity_name,
+      source_file: data.source_file,
+      sport: data.sport,
+      exported_at: new Date().toISOString(),
+      summary: {
+        start_time: data.summary.start_time,
+        end_time: data.summary.end_time,
+        duration_min: data.summary.duration_min,
+        trackpoint_count: data.summary.trackpoint_count,
+        distance_m: data.summary.distance_m,
+      },
+      segments: data.segments.map((segment) => ({
+        segment_id: segment.segment_id,
+        label: segment.label,
+        start_time: segment.start_time,
+        end_time: segment.end_time,
+        start_idx: segment.start_idx,
+        end_idx: segment.end_idx,
+      })),
+    };
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `corrected-boundaries-${slugify(data.activity_name)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -154,6 +329,7 @@ function Index() {
             onClick={() => {
               setShowFullRoute(true);
               setSelectedSegmentId(null);
+              setGraphPreviewIdx(null);
             }}
             className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
               showFullRoute
@@ -164,7 +340,10 @@ function Index() {
             Session
           </button>
           <button
-            onClick={() => setShowFullRoute(false)}
+            onClick={() => {
+              setShowFullRoute(false);
+              setGraphPreviewIdx(null);
+            }}
             className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
               !showFullRoute
                 ? "bg-primary/15 text-primary"
@@ -173,103 +352,180 @@ function Index() {
           >
             Focus Segment
           </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={exportCorrectedBoundaries}
+            disabled={!data}
+            title="Export current edited segment boundaries as JSON"
+            className="h-8 gap-1.5 text-xs text-muted-foreground"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </Button>
+          <SettingsMenu settings={settings} onChange={setSettings} />
         </div>
       </header>
 
       <UploadPanel onUploaded={handleUploaded} />
 
-      {/* Main layout */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar */}
-        <aside className="w-64 flex flex-col gap-3 p-3 overflow-y-auto border-r border-border/30">
-          <SessionSidebar
-            activityName={data.activity_name}
-            sport={data.sport}
-            summary={data.summary}
-            segmentCount={data.segments.length}
-          />
-          <SegmentList
-            segments={data.segments}
-            selectedId={selectedSegmentId}
-            hoveredId={hoveredSegmentId}
-            onSelect={handleSelectSegment}
-            onHover={setHoveredSegmentId}
-          />
-        </aside>
-
-        {/* Center map + bottom panels */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 p-3 pb-0">
-            <SessionMap
-              points={data.points}
-              segments={data.segments}
-              selectedSegmentId={mapSelectedSegmentId}
-              hoveredSegmentId={hoveredSegmentId}
-              showFullRoute={showFullRoute}
-              playbackIdx={selectedSegment ? playback.idx : null}
-              sessionPlaybackIdx={showFullRoute ? sessionPlayback.idx : null}
-              playbackActive={showFullRoute ? sessionPlayback.playing : playback.playing}
+      <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
+        <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
+          <aside className="flex h-full flex-col gap-3 overflow-y-auto border-r border-border/30 p-3">
+            <SessionSidebar
+              activityName={data.activity_name}
+              sport={data.sport}
+              summary={data.summary}
+              segmentCount={data.segments.length}
+              units={settings.units}
             />
-          </div>
-          <div className="p-3 space-y-3">
-            {showFullRoute ? (
-              <SessionTimelineEditor
-                segments={data.segments}
-                summary={data.summary}
-                selectedId={selectedSegmentId}
-                hoveredId={hoveredSegmentId}
-                playheadIdx={sessionPlayback.idx}
-                totalPoints={sessionTotalPoints}
-                playing={sessionPlayback.playing}
-                onSelect={handleSelectTimelineSegment}
-                onHover={setHoveredSegmentId}
-                onPlay={sessionPlayback.play}
-                onPause={sessionPlayback.pause}
-                onRestart={sessionPlayback.restart}
-                onSeek={sessionPlayback.seek}
-                onSplitSelected={splitSelectedSegment}
-              />
-            ) : (
-              <>
-                <PlaybackControls
-                  segment={selectedSegment}
-                  hasPrev={selectedIndex > 0}
-                  hasNext={selectedIndex >= 0 && selectedIndex < data.segments.length - 1}
-                  playing={playback.playing}
-                  idx={playback.idx}
-                  totalPoints={totalPoints}
-                  speed={playback.speed}
-                  onPlay={playback.play}
-                  onPause={playback.pause}
-                  onRestart={playback.restart}
-                  onPrev={() => goToSegment(-1)}
-                  onNext={() => goToSegment(1)}
-                  onSeek={playback.seek}
-                  onSpeedChange={playback.setSpeed}
-                />
-                <AnalyticsCards segment={selectedSegment} />
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
-                    <EditControls />
-                  </div>
-                  <div className="flex-1">
-                    <MultiPlayerPanel />
-                  </div>
+            <SegmentList
+              segments={data.segments}
+              selectedId={selectedSegmentId}
+              hoveredId={hoveredSegmentId}
+              units={settings.units}
+              onSelect={handleSelectSegment}
+              onHover={setHoveredSegmentId}
+            />
+          </aside>
+        </ResizablePanel>
+        <ResizableHandle withHandle className="bg-border/40" />
+        <ResizablePanel minSize="28rem">
+          <main className="h-full overflow-hidden">
+            <ResizablePanelGroup orientation="vertical">
+              <ResizablePanel defaultSize="62%" minSize="18rem">
+                <div className="h-full p-3 pb-0">
+                  <SessionMap
+                    points={data.points}
+                    segments={data.segments}
+                    selectedSegmentId={mapSelectedSegmentId}
+                    hoveredSegmentId={hoveredSegmentId}
+                    showFullRoute={showFullRoute}
+                    playbackIdx={selectedSegment ? (focusedPreviewOffset ?? playback.idx) : null}
+                    sessionPlaybackIdx={showFullRoute ? effectiveSessionIdx : null}
+                    playbackActive={showFullRoute ? sessionPlayback.playing : playback.playing}
+                    displayOptions={mapDisplayOptions}
+                    units={settings.units}
+                    showInactiveSegments={settings.showInactiveSegments}
+                    reducedAnimation={settings.reducedAnimation}
+                  />
                 </div>
-              </>
-            )}
-            {showFullRoute ? (
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <MultiPlayerPanel />
+              </ResizablePanel>
+              <ResizableHandle withHandle className="bg-border/40" />
+              <ResizablePanel defaultSize="38%" minSize="14rem">
+                <div className="h-full overflow-y-auto p-3 space-y-3">
+                  {showFullRoute ? (
+                    <SessionTimelineEditor
+                      points={data.points}
+                      segments={data.segments}
+                      summary={data.summary}
+                      selectedId={selectedSegmentId}
+                      hoveredId={hoveredSegmentId}
+                      playheadIdx={sessionPlayback.idx}
+                      totalPoints={sessionTotalPoints}
+                      playing={sessionPlayback.playing}
+                      displayOptions={mapDisplayOptions}
+                      units={settings.units}
+                      showPaceGraph={settings.showPaceGraph}
+                      onSelect={handleSelectTimelineSegment}
+                      onHover={setHoveredSegmentId}
+                      onPlay={sessionPlayback.play}
+                      onPause={sessionPlayback.pause}
+                      onRestart={sessionPlayback.restart}
+                      onSeek={sessionPlayback.seek}
+                      onGraphHover={setGraphPreviewIdx}
+                      onGraphSelect={seekSessionGraphPoint}
+                      onDisplayOptionsChange={updateMapDisplayOptions}
+                      onFocusSelected={focusSelectedSegment}
+                      onUpdateSegment={updateSegmentRange}
+                      onDeleteSelected={deleteSelectedSegment}
+                      onAddSegmentAtPlayhead={addSegmentAtPlayhead}
+                      onSplitSelected={splitSelectedSegment}
+                    />
+                  ) : (
+                    <>
+                      <PlaybackControls
+                        segment={selectedSegment}
+                        hasPrev={selectedIndex > 0}
+                        hasNext={selectedIndex >= 0 && selectedIndex < data.segments.length - 1}
+                        playing={playback.playing}
+                        idx={playback.idx}
+                        totalPoints={totalPoints}
+                        speed={playback.speed}
+                        onPlay={playback.play}
+                        onPause={playback.pause}
+                        onRestart={playback.restart}
+                        onPrev={() => goToSegment(-1)}
+                        onNext={() => goToSegment(1)}
+                        onSeek={playback.seek}
+                        onSpeedChange={playback.setSpeed}
+                      />
+                      <AnalyticsCards segment={selectedSegment} units={settings.units} />
+                      {settings.showPaceGraph && selectedSegment ? (
+                        <PaceGraph
+                          points={data.points}
+                          startIdx={selectedSegment.start_idx}
+                          endIdx={selectedSegment.end_idx}
+                          playheadIdx={selectedSegment.start_idx + playback.idx}
+                          units={settings.units}
+                          onHoverPoint={setGraphPreviewIdx}
+                          onSelectPoint={seekFocusGraphPoint}
+                        />
+                      ) : null}
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="flex-1">
+                          <EditControls />
+                        </div>
+                        <div className="flex-1">
+                          <MultiPlayerPanel />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {showFullRoute ? (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex-1">
+                        <MultiPlayerPanel />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ) : null}
-          </div>
-        </main>
-      </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </main>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
+}
+
+function createFallbackSegment(points: SessionPoint[]): SessionSegment {
+  return buildSegmentFromRange({
+    points,
+    source: {
+      segment_id: 0,
+      label: "Segment",
+      start_idx: 0,
+      end_idx: Math.max(0, points.length - 1),
+      start_time: points[0]?.t ?? "",
+      end_time: points.at(-1)?.t ?? "",
+      duration_s: 0,
+      distance_m: 0,
+      mean_speed_mps: 0,
+      point_count: points.length,
+      bbox: {
+        min_lat: Math.min(...points.map((point) => point.lat)),
+        min_lon: Math.min(...points.map((point) => point.lon)),
+        max_lat: Math.max(...points.map((point) => point.lat)),
+        max_lon: Math.max(...points.map((point) => point.lon)),
+      },
+    },
+    startIdx: 0,
+    endIdx: Math.max(0, points.length - 1),
+    id: 0,
+    label: "Segment",
+  });
 }
 
 function buildSegmentFromRange({
@@ -324,4 +580,41 @@ function calculateDistanceMeters(points: SessionPoint[]): number {
     const dy = point.y_m - previous.y_m;
     return total + Math.sqrt(dx * dx + dy * dy);
   }, 0);
+}
+
+function loadSettings(): AppSettings {
+  if (typeof localStorage === "undefined") return DEFAULT_APP_SETTINGS;
+
+  try {
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!stored) return DEFAULT_APP_SETTINGS;
+
+    return { ...DEFAULT_APP_SETTINGS, ...JSON.parse(stored) };
+  } catch {
+    return DEFAULT_APP_SETTINGS;
+  }
+}
+
+function settingsToMapDisplayOptions(settings: AppSettings): MapDisplayOptions {
+  return {
+    traceMode: settings.defaultTraceMode,
+    colorMode: settings.lineColorMode === "solid" ? "solid" : "speed",
+    gradientMode: settings.lineColorMode === "single-gradient" ? "single" : "multi",
+    lineColor: settings.lineColor,
+  };
+}
+
+function mapDisplayOptionsToLineColorMode(options: MapDisplayOptions): LineColorMode {
+  if (options.colorMode === "solid") return "solid";
+  return options.gradientMode === "single" ? "single-gradient" : "multi-gradient";
+}
+
+function slugify(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "activity"
+  );
 }
