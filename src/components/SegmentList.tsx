@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDownAZ, ArrowUpAZ, Search } from "lucide-react";
 import type { SessionSegment } from "@/types/session";
+import type { UnitSystem } from "@/types/app-settings";
 import { formatDuration, formatDistance, formatSpeed, formatTimeRange } from "@/lib/format";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +19,7 @@ interface SegmentListProps {
   segments: SessionSegment[];
   selectedId: number | null;
   hoveredId: number | null;
+  units?: UnitSystem;
   onSelect: (id: number) => void;
   onHover: (id: number | null) => void;
 }
@@ -26,6 +28,7 @@ export function SegmentList({
   segments,
   selectedId,
   hoveredId,
+  units = "metric",
   onSelect,
   onHover,
 }: SegmentListProps) {
@@ -43,8 +46,8 @@ export function SegmentList({
         return [
           seg.label,
           formatDuration(seg.duration_s),
-          formatDistance(seg.distance_m),
-          formatSpeed(seg.mean_speed_mps),
+          formatDistance(seg.distance_m, units),
+          formatSpeed(seg.mean_speed_mps, units),
         ]
           .join(" ")
           .toLowerCase()
@@ -57,7 +60,7 @@ export function SegmentList({
 
         return (first - second) * direction;
       });
-  }, [query, segments, sortBy, sortDirection]);
+  }, [query, segments, sortBy, sortDirection, units]);
 
   return (
     <div className="space-y-2">
@@ -134,7 +137,7 @@ export function SegmentList({
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span>{formatDuration(seg.duration_s)}</span>
             <span className="text-border">•</span>
-            <span>{formatDistance(seg.distance_m)}</span>
+            <span>{formatDistance(seg.distance_m, units)}</span>
           </div>
           <div className="text-[10px] text-muted-foreground/70 mt-1 font-mono">
             {formatTimeRange(seg.start_time, seg.end_time)}

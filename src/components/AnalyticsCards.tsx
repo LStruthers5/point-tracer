@@ -1,11 +1,13 @@
 import type { SessionSegment } from "@/types/session";
+import type { UnitSystem } from "@/types/app-settings";
 import { formatDuration, formatDistance, formatSpeed } from "@/lib/format";
 
 interface AnalyticsCardsProps {
   segment: SessionSegment | null;
+  units?: UnitSystem;
 }
 
-export function AnalyticsCards({ segment }: AnalyticsCardsProps) {
+export function AnalyticsCards({ segment, units = "metric" }: AnalyticsCardsProps) {
   if (!segment) {
     return (
       <div className="glass-card rounded-2xl p-5">
@@ -19,8 +21,8 @@ export function AnalyticsCards({ segment }: AnalyticsCardsProps) {
 
   const stats = [
     { label: "Duration", value: formatDuration(segment.duration_s) },
-    { label: "Distance", value: formatDistance(segment.distance_m) },
-    { label: "Avg Speed", value: formatSpeed(segment.mean_speed_mps) },
+    { label: "Distance", value: formatDistance(segment.distance_m, units) },
+    { label: "Avg Speed", value: formatSpeed(segment.mean_speed_mps, units) },
     { label: "Trackpoints", value: String(segment.point_count) },
   ];
 
