@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SessionPoint, SessionSegment } from "@/types/session";
 import type { MapDisplayOptions } from "@/types/map-display";
-import type { UnitSystem } from "@/types/app-settings";
+import type { ThemeMode, UnitSystem } from "@/types/app-settings";
 
 interface SessionMapProps {
   points: SessionPoint[];
@@ -14,6 +14,7 @@ interface SessionMapProps {
   playbackActive?: boolean;
   displayOptions: MapDisplayOptions;
   units: UnitSystem;
+  theme: ThemeMode;
   showInactiveSegments: boolean;
   reducedAnimation: boolean;
 }

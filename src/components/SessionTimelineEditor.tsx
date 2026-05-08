@@ -6,6 +6,7 @@ import type {
   MapColorMode,
   MapDisplayOptions,
   MapGradientMode,
+  MapHeatmapMode,
   MapLineColor,
   MapTraceMode,
 } from "@/types/map-display";
@@ -345,10 +346,27 @@ export function SessionTimelineEditor({
           }
           items={[
             { value: "full", label: "Full trace" },
-            { value: "fade", label: "Dim full trace" },
             { value: "streak", label: "Streak" },
+            { value: "none", label: "No trace" },
+            { value: "heatmap", label: "Heatmap" },
           ]}
         />
+        {displayOptions.traceMode === "heatmap" ? (
+          <OptionSelect
+            label="Heatmap"
+            value={displayOptions.heatmapMode}
+            onValueChange={(heatmapMode) =>
+              onDisplayOptionsChange({
+                ...displayOptions,
+                heatmapMode: heatmapMode as MapHeatmapMode,
+              })
+            }
+            items={[
+              { value: "occupancy", label: "Occupancy" },
+              { value: "speed", label: "Speed by area" },
+            ]}
+          />
+        ) : null}
         <OptionSelect
           label="Color"
           value={displayOptions.lineColor}
@@ -362,31 +380,35 @@ export function SessionTimelineEditor({
             { value: "rose", label: "Rose" },
           ]}
         />
-        <OptionSelect
-          label="Line mode"
-          value={displayOptions.colorMode}
-          onValueChange={(colorMode) =>
-            onDisplayOptionsChange({ ...displayOptions, colorMode: colorMode as MapColorMode })
-          }
-          items={[
-            { value: "solid", label: "Solid" },
-            { value: "speed", label: "Speed gradient" },
-          ]}
-        />
-        <OptionSelect
-          label="Gradient"
-          value={displayOptions.gradientMode}
-          onValueChange={(gradientMode) =>
-            onDisplayOptionsChange({
-              ...displayOptions,
-              gradientMode: gradientMode as MapGradientMode,
-            })
-          }
-          items={[
-            { value: "multi", label: "Multicolor" },
-            { value: "single", label: "Single color" },
-          ]}
-        />
+        {displayOptions.traceMode !== "heatmap" ? (
+          <>
+            <OptionSelect
+              label="Line mode"
+              value={displayOptions.colorMode}
+              onValueChange={(colorMode) =>
+                onDisplayOptionsChange({ ...displayOptions, colorMode: colorMode as MapColorMode })
+              }
+              items={[
+                { value: "solid", label: "Solid" },
+                { value: "speed", label: "Speed gradient" },
+              ]}
+            />
+            <OptionSelect
+              label="Gradient"
+              value={displayOptions.gradientMode}
+              onValueChange={(gradientMode) =>
+                onDisplayOptionsChange({
+                  ...displayOptions,
+                  gradientMode: gradientMode as MapGradientMode,
+                })
+              }
+              items={[
+                { value: "multi", label: "Multicolor" },
+                { value: "single", label: "Single color" },
+              ]}
+            />
+          </>
+        ) : null}
       </div>
 
       {showPaceGraph && points.length > 1 ? (

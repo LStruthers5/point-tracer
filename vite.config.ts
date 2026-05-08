@@ -10,12 +10,12 @@ export default defineConfig({
   vite: {
     server: {
       host: "localhost",
-      port: 8080,
+      port: 5173,
       strictPort: true,
       hmr: {
         host: "localhost",
         protocol: "ws",
-        clientPort: 8080,
+        clientPort: 5173,
       },
     },
   },

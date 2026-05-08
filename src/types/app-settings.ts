@@ -1,4 +1,4 @@
-import type { MapLineColor, MapTraceMode } from "@/types/map-display";
+import type { MapHeatmapMode, MapLineColor, MapTraceMode } from "@/types/map-display";
 
 export type UnitSystem = "metric" | "imperial";
 export type ThemeMode = "dark" | "light";
@@ -9,6 +9,7 @@ export interface AppSettings {
   theme: ThemeMode;
   defaultPlaybackSpeed: number;
   defaultTraceMode: MapTraceMode;
+  heatmapMode: MapHeatmapMode;
   showInactiveSegments: boolean;
   lineColorMode: LineColorMode;
   lineColor: MapLineColor;
@@ -21,6 +22,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: "dark",
   defaultPlaybackSpeed: 1,
   defaultTraceMode: "full",
+  heatmapMode: "occupancy",
   showInactiveSegments: true,
   lineColorMode: "solid",
   lineColor: "green",
