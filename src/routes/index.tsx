@@ -99,6 +99,7 @@ function Index() {
     setSettings((current) => ({
       ...current,
       defaultTraceMode: options.traceMode,
+      heatmapMode: options.heatmapMode,
       lineColor: options.lineColor,
       lineColorMode: mapDisplayOptionsToLineColorMode(options),
     }));
@@ -368,7 +369,7 @@ function Index() {
         </div>
       </header>
 
-      <UploadPanel onUploaded={handleUploaded} />
+      <UploadPanel onUploaded={handleUploaded} units={settings.units} />
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
         <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
@@ -407,6 +408,7 @@ function Index() {
                     playbackActive={showFullRoute ? sessionPlayback.playing : playback.playing}
                     displayOptions={mapDisplayOptions}
                     units={settings.units}
+                    theme={settings.theme}
                     showInactiveSegments={settings.showInactiveSegments}
                     reducedAnimation={settings.reducedAnimation}
                   />
@@ -589,7 +591,9 @@ function loadSettings(): AppSettings {
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!stored) return DEFAULT_APP_SETTINGS;
 
-    return { ...DEFAULT_APP_SETTINGS, ...JSON.parse(stored) };
+    const parsed = { ...DEFAULT_APP_SETTINGS, ...JSON.parse(stored) } as AppSettings;
+    if ((parsed.defaultTraceMode as string) === "fade") parsed.defaultTraceMode = "full";
+    return parsed;
   } catch {
     return DEFAULT_APP_SETTINGS;
   }
@@ -601,6 +605,7 @@ function settingsToMapDisplayOptions(settings: AppSettings): MapDisplayOptions {
     colorMode: settings.lineColorMode === "solid" ? "solid" : "speed",
     gradientMode: settings.lineColorMode === "single-gradient" ? "single" : "multi",
     lineColor: settings.lineColor,
+    heatmapMode: settings.heatmapMode,
   };
 }
 

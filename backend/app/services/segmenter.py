@@ -30,6 +30,14 @@ class SegmenterOptions:
 
 
 @dataclass(frozen=True)
+class SegmentationPlan:
+    ranges: list[tuple[int, int]]
+    method_type: str
+    notes: str
+    debug: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class SegmenterSignals:
     """
     Container for derived segmentation signals.
@@ -353,18 +361,143 @@ def split_segments(
     return segments, debug
 
 
+def split_by_distance(
+    points: list[dict[str, Any]],
+    split_distance_m: float,
+    min_points: int = 2,
+) -> list[tuple[int, int]]:
+    if split_distance_m <= 0:
+        raise ValueError("split_distance_m must be greater than 0.")
+
+    segments: list[tuple[int, int]] = []
+    start_idx = 0
+    distance_in_segment = 0.0
+
+    for idx in range(1, len(points)):
+        distance_in_segment += points[idx]["dist_m"]
+
+        if distance_in_segment >= split_distance_m and idx - start_idx + 1 >= min_points:
+            segments.append((start_idx, idx))
+            start_idx = idx + 1
+            distance_in_segment = 0.0
+
+    if start_idx < len(points):
+        if len(points) - start_idx >= min_points:
+            segments.append((start_idx, len(points) - 1))
+        elif segments:
+            previous_start, _ = segments[-1]
+            segments[-1] = (previous_start, len(points) - 1)
+
+    return segments
+
+
+def split_by_time(
+    points: list[dict[str, Any]],
+    split_duration_s: float,
+    min_points: int = 2,
+) -> list[tuple[int, int]]:
+    if split_duration_s <= 0:
+        raise ValueError("split_duration_s must be greater than 0.")
+
+    segments: list[tuple[int, int]] = []
+    start_idx = 0
+    segment_start_time = points[0]["time"]
+
+    for idx in range(1, len(points)):
+        elapsed_s = (points[idx]["time"] - segment_start_time).total_seconds()
+
+        if elapsed_s >= split_duration_s and idx - start_idx + 1 >= min_points:
+            segments.append((start_idx, idx))
+            start_idx = idx + 1
+            if start_idx < len(points):
+                segment_start_time = points[start_idx]["time"]
+
+    if start_idx < len(points):
+        if len(points) - start_idx >= min_points:
+            segments.append((start_idx, len(points) - 1))
+        elif segments:
+            previous_start, _ = segments[-1]
+            segments[-1] = (previous_start, len(points) - 1)
+
+    return segments
+
+
+def build_segmentation_plan(
+    signals: SegmenterSignals,
+    options: SegmenterOptions,
+    mode: str,
+    split_distance_m: float | None = None,
+    split_duration_s: float | None = None,
+) -> SegmentationPlan:
+    normalized_mode = mode.strip().lower().replace("-", "_")
+
+    if normalized_mode == "auto":
+        ranges, debug = split_segments(signals, options)
+        return SegmentationPlan(
+            ranges=ranges,
+            method_type="heuristic_pause_split_v2",
+            notes=(
+                "Segments are created by detecting long low-speed windows and "
+                "splitting active movement periods around them. Optional reset-area "
+                "distance can support pause detection when supplied."
+            ),
+            debug=debug,
+        )
+
+    if normalized_mode == "distance":
+        if split_distance_m is None:
+            raise ValueError("split_distance_m is required for distance segmentation.")
+
+        return SegmentationPlan(
+            ranges=split_by_distance(signals.points, split_distance_m),
+            method_type="distance_splits",
+            notes=(
+                "Segments are created at approximately every "
+                f"{round(split_distance_m, 1)} meters."
+            ),
+        )
+
+    if normalized_mode == "time":
+        if split_duration_s is None:
+            raise ValueError("split_duration_s is required for time segmentation.")
+
+        return SegmentationPlan(
+            ranges=split_by_time(signals.points, split_duration_s),
+            method_type="time_splits",
+            notes=(
+                "Segments are created at approximately every "
+                f"{round(split_duration_s, 1)} seconds."
+            ),
+        )
+
+    if normalized_mode == "manual":
+        return SegmentationPlan(
+            ranges=[],
+            method_type="manual_review",
+            notes=(
+                "No suggested segments were created; use the editor to create "
+                "boundaries manually."
+            ),
+        )
+
+    raise ValueError(f"Unsupported segmentation mode '{mode}'.")
+
+
 def build_session_data(
     signals: SegmenterSignals,
     source_file: str,
     options: SegmenterOptions,
     sport: str | None = None,
+    segmentation_plan: SegmentationPlan | None = None,
 ) -> dict[str, Any]:
     points = signals.points
     if not points:
         raise ValueError("No points available to build session data.")
 
     sport = sport
-    segments, debug = split_segments(signals, options)
+    plan = segmentation_plan or build_segmentation_plan(signals, options, mode="auto")
+    segments = plan.ranges
+    debug = plan.debug
 
     total_dist_m = sum(p["dist_m"] for p in points)
     duration_min = (
@@ -448,12 +581,8 @@ def build_session_data(
             "bbox": compute_bbox(session_points),
         },
         "segmentation_method": {
-            "type": "heuristic_pause_split_v2",
-            "notes": (
-                "Segments are created by detecting long low-speed windows and "
-                "splitting active movement periods around them. Optional reset-area "
-                "distance can support pause detection when supplied."
-            ),
+            "type": plan.method_type,
+            "notes": plan.notes,
             "reset_area_enabled": options.reset_area is not None,
         },
         "segments": session_segments,
@@ -473,6 +602,9 @@ def segment_gpx_bytes(
     *,
     reset_area: ResetArea | None = None,
     debug: bool = False,
+    segmentation_mode: str = "auto",
+    split_distance_m: float | None = None,
+    split_duration_s: float | None = None,
 ) -> dict[str, Any]:
     """
     Main entry point for the backend upload flow.
@@ -481,4 +613,17 @@ def segment_gpx_bytes(
     raw_points = parse_gpx_bytes(file_bytes)
     options = SegmenterOptions(reset_area=reset_area, debug=debug)
     signals = build_segmenter_signals(raw_points, options)
-    return build_session_data(signals, source_file=filename, sport=sport, options=options)
+    segmentation_plan = build_segmentation_plan(
+        signals,
+        options,
+        mode=segmentation_mode,
+        split_distance_m=split_distance_m,
+        split_duration_s=split_duration_s,
+    )
+    return build_session_data(
+        signals,
+        source_file=filename,
+        sport=sport,
+        options=options,
+        segmentation_plan=segmentation_plan,
+    )

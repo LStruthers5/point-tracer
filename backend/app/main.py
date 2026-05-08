@@ -23,7 +23,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:8080"
+        "http://localhost:8080",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -44,6 +44,9 @@ def health_check() -> dict[str, str]:
 async def upload_gpx(
     file: UploadFile = File(...),
     sport: str = Form(...),
+    segmentation_mode: str = Form(default="auto"),
+    split_distance_m: float | None = Form(default=None),
+    split_duration_s: float | None = Form(default=None),
     reset_area_lat: float | None = Form(default=None),
     reset_area_lon: float | None = Form(default=None),
     debug: bool = Form(default=False),
@@ -61,6 +64,26 @@ async def upload_gpx(
     normalized_sport = sport.strip().lower()
     if not normalized_sport:
         raise HTTPException(status_code=400, detail="Sport is required.")
+
+    normalized_segmentation_mode = segmentation_mode.strip().lower()
+    if normalized_segmentation_mode not in {"auto", "distance", "time", "manual"}:
+        raise HTTPException(status_code=400, detail="Unsupported segmentation mode.")
+
+    if normalized_segmentation_mode == "distance" and (
+        split_distance_m is None or split_distance_m <= 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="split_distance_m must be greater than 0 for distance splits.",
+        )
+
+    if normalized_segmentation_mode == "time" and (
+        split_duration_s is None or split_duration_s <= 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="split_duration_s must be greater than 0 for time splits.",
+        )
 
     if (reset_area_lat is None) != (reset_area_lon is None):
         raise HTTPException(
@@ -95,6 +118,9 @@ async def upload_gpx(
             sport=normalized_sport,
             reset_area=reset_area,
             debug=debug,
+            segmentation_mode=normalized_segmentation_mode,
+            split_distance_m=split_distance_m,
+            split_duration_s=split_duration_s,
         )
         return session_data
 

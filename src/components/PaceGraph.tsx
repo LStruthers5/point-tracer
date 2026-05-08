@@ -18,10 +18,10 @@ interface PaceGraphProps {
 const VIEWBOX_WIDTH = 720;
 const VIEWBOX_HEIGHT = 190;
 const PLOT = {
-  left: 42,
+  left: 62,
   right: 704,
   top: 14,
-  bottom: 154,
+  bottom: 152,
 };
 
 export function PaceGraph({
@@ -37,7 +37,7 @@ export function PaceGraph({
 }: PaceGraphProps) {
   const [hoverX, setHoverX] = useState<number | null>(null);
   const range = useMemo(() => points.slice(startIdx, endIdx + 1), [endIdx, points, startIdx]);
-  const graph = useMemo(() => buildGraph(range, startIdx), [range, startIdx]);
+  const graph = useMemo(() => buildGraph(range, startIdx, units), [range, startIdx, units]);
   const selectedStart = selectedStartIdx != null ? points[selectedStartIdx] : null;
   const selectedEnd = selectedEndIdx != null ? points[selectedEndIdx] : null;
   const selectedLeft = selectedStart ? graph.toX(selectedStart) : null;
@@ -56,7 +56,7 @@ export function PaceGraph({
 
       <div className="relative h-52 w-full">
         <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Speed
+          Speed {units === "imperial" ? "mph" : "km/h"}
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           Time
@@ -84,28 +84,28 @@ export function PaceGraph({
             if (hovered) onSelectPoint?.(hovered.absoluteIdx);
           }}
         >
-          {[0.25, 0.5, 0.75].map((tick) => (
+          {graph.yTicks.map((tick) => (
             <line
-              key={tick}
+              key={`y-grid-${tick.value}`}
               x1={PLOT.left}
-              y1={PLOT.bottom - (PLOT.bottom - PLOT.top) * tick}
+              y1={tick.y}
               x2={PLOT.right}
-              y2={PLOT.bottom - (PLOT.bottom - PLOT.top) * tick}
+              y2={tick.y}
               stroke="currentColor"
-              strokeWidth="0.45"
-              className="text-border/55"
+              strokeWidth="0.5"
+              className="text-border/70 dark:text-border/80"
             />
           ))}
-          {[0.25, 0.5, 0.75].map((tick) => (
+          {graph.xTicks.map((tick) => (
             <line
-              key={`x-${tick}`}
-              x1={PLOT.left + (PLOT.right - PLOT.left) * tick}
+              key={`x-grid-${tick.value}`}
+              x1={tick.x}
               y1={PLOT.top}
-              x2={PLOT.left + (PLOT.right - PLOT.left) * tick}
+              x2={tick.x}
               y2={PLOT.bottom}
               stroke="currentColor"
-              strokeWidth="0.35"
-              className="text-border/35"
+              strokeWidth="0.45"
+              className="text-border/45 dark:text-border/65"
             />
           ))}
           <line
@@ -115,7 +115,7 @@ export function PaceGraph({
             y2={PLOT.bottom}
             stroke="currentColor"
             strokeWidth="0.8"
-            className="text-border"
+            className="text-border dark:text-border/90"
           />
           <line
             x1={PLOT.left}
@@ -124,8 +124,30 @@ export function PaceGraph({
             y2={PLOT.bottom}
             stroke="currentColor"
             strokeWidth="0.8"
-            className="text-border"
+            className="text-border dark:text-border/90"
           />
+          {graph.yTicks.map((tick) => (
+            <text
+              key={`y-label-${tick.value}`}
+              x={PLOT.left - 8}
+              y={tick.y + 3.5}
+              textAnchor="end"
+              className="fill-muted-foreground text-[9px] font-medium dark:fill-slate-300"
+            >
+              {tick.label}
+            </text>
+          ))}
+          {graph.xTicks.map((tick) => (
+            <text
+              key={`x-label-${tick.value}`}
+              x={tick.x}
+              y={PLOT.bottom + 17}
+              textAnchor="middle"
+              className="fill-muted-foreground text-[9px] font-medium dark:fill-slate-300"
+            >
+              {tick.label}
+            </text>
+          ))}
           {selectedLeft != null && selectedRight != null ? (
             <rect
               x={Math.min(selectedLeft, selectedRight)}
@@ -143,7 +165,7 @@ export function PaceGraph({
               points={graph.linePoints}
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.55"
+              strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
               className="text-primary"
@@ -196,19 +218,32 @@ export function PaceGraph({
   );
 }
 
-function buildGraph(range: SessionPoint[], startIdx: number) {
+function buildGraph(range: SessionPoint[], startIdx: number, units: UnitSystem) {
   const first = range[0];
   const last = range[range.length - 1];
   const startMs = first ? new Date(first.t).getTime() : 0;
   const endMs = last ? new Date(last.t).getTime() : startMs + 1;
   const durationMs = Math.max(1, endMs - startMs);
   const speeds = range.map(getPointSpeed);
-  const maxSpeed = Math.max(1, ...speeds);
+  const speedFactor = units === "imperial" ? 2.236936 : 3.6;
+  const maxDisplaySpeed = Math.max(1, ...speeds.map((speed) => speed * speedFactor));
+  const yMaxDisplay = niceCeil(maxDisplaySpeed);
+  const yMaxMps = yMaxDisplay / speedFactor;
+  const yTicks = buildSpeedTicks(yMaxDisplay, units).map((value) => ({
+    value,
+    label: formatTickNumber(value),
+    y: toYForSpeed(value / speedFactor, yMaxMps),
+  }));
+  const xTicks = buildTimeTicks(durationMs).map((value) => ({
+    value,
+    label: formatElapsedTick(value),
+    x: PLOT.left + (value / (durationMs / 1000)) * (PLOT.right - PLOT.left),
+  }));
   const cumulativeMeters = buildCumulativeMeters(range);
   const toX = (point: SessionPoint) =>
     PLOT.left + ((new Date(point.t).getTime() - startMs) / durationMs) * (PLOT.right - PLOT.left);
   const toY = (point: SessionPoint) => {
-    return PLOT.bottom - (getPointSpeed(point) / maxSpeed) * (PLOT.bottom - PLOT.top);
+    return toYForSpeed(getPointSpeed(point), yMaxMps);
   };
   const plotted = range.map((point, index) => ({
     point,
@@ -221,6 +256,8 @@ function buildGraph(range: SessionPoint[], startIdx: number) {
 
   return {
     linePoints: plotted.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "),
+    xTicks,
+    yTicks,
     toX,
     nearestPoint: (x: number) => {
       if (plotted.length === 0) return null;
@@ -232,6 +269,10 @@ function buildGraph(range: SessionPoint[], startIdx: number) {
       );
     },
   };
+}
+
+function toYForSpeed(speedMps: number, maxSpeedMps: number) {
+  return PLOT.bottom - (speedMps / Math.max(0.1, maxSpeedMps)) * (PLOT.bottom - PLOT.top);
 }
 
 function GraphTooltip({
@@ -296,4 +337,86 @@ function buildCumulativeMeters(points: SessionPoint[]) {
 
     return total;
   });
+}
+
+function buildSpeedTicks(maxSpeed: number, units: UnitSystem) {
+  const targetTicks = units === "imperial" ? 5 : 6;
+  const step = niceStep(maxSpeed / Math.max(1, targetTicks - 1));
+  const top = Math.max(step, Math.ceil(maxSpeed / step) * step);
+  const ticks: number[] = [];
+
+  for (let value = 0; value <= top + step * 0.25; value += step) {
+    ticks.push(roundTickValue(value));
+  }
+
+  return ticks.slice(0, 6);
+}
+
+function buildTimeTicks(durationMs: number) {
+  const durationS = Math.max(1, durationMs / 1000);
+  const step = pickTimeStep(durationS / 6);
+  const ticks: number[] = [];
+  const roundedDuration = Math.round(durationS);
+
+  for (let value = 0; value <= durationS + step * 0.25; value += step) {
+    ticks.push(Math.round(value));
+  }
+
+  if (ticks[ticks.length - 1] !== roundedDuration) {
+    const previousTick = ticks[ticks.length - 1] ?? 0;
+    const closeToPreviousTick = roundedDuration - previousTick < step * 0.45;
+
+    if (closeToPreviousTick && ticks.length > 1) {
+      ticks[ticks.length - 1] = roundedDuration;
+    } else {
+      ticks.push(roundedDuration);
+    }
+  }
+
+  return ticks.slice(0, 7);
+}
+
+function niceCeil(value: number) {
+  const step = niceStep(value / 5);
+  return Math.ceil(value / step) * step;
+}
+
+function niceStep(rawStep: number) {
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(rawStep, 0.001)));
+  const normalized = rawStep / magnitude;
+
+  if (normalized <= 1) return magnitude;
+  if (normalized <= 2) return 2 * magnitude;
+  if (normalized <= 2.5) return 2.5 * magnitude;
+  if (normalized <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function pickTimeStep(rawStepS: number) {
+  const steps = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  return steps.find((step) => step >= rawStepS) ?? steps[steps.length - 1];
+}
+
+function formatElapsedTick(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds === 0
+      ? `${minutes}m`
+      : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+}
+
+function formatTickNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function roundTickValue(value: number) {
+  return Math.round(value * 10) / 10;
 }

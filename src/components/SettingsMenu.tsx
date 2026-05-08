@@ -1,6 +1,6 @@
 import { Settings } from "lucide-react";
 import type { AppSettings, LineColorMode, ThemeMode, UnitSystem } from "@/types/app-settings";
-import type { MapTraceMode } from "@/types/map-display";
+import type { MapHeatmapMode, MapTraceMode } from "@/types/map-display";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -64,10 +64,22 @@ export function SettingsMenu({ settings, onChange }: SettingsMenuProps) {
             onValueChange={(value) => update("defaultTraceMode", value as MapTraceMode)}
             items={[
               { value: "full", label: "Full trace" },
-              { value: "fade", label: "Dim full trace" },
               { value: "streak", label: "Streak" },
+              { value: "none", label: "No trace" },
+              { value: "heatmap", label: "Heatmap" },
             ]}
           />
+          {settings.defaultTraceMode === "heatmap" ? (
+            <SettingSelect
+              label="Heatmap style"
+              value={settings.heatmapMode}
+              onValueChange={(value) => update("heatmapMode", value as MapHeatmapMode)}
+              items={[
+                { value: "occupancy", label: "Occupancy" },
+                { value: "speed", label: "Speed by area" },
+              ]}
+            />
+          ) : null}
           <SettingNumber
             label="Default playback speed"
             value={settings.defaultPlaybackSpeed}
