@@ -1,0 +1,135 @@
+{
+  "activity_name": "Manual_Disc_7",
+  "source_file": "Manual_Disc_7.gpx",
+  "sport": "ultimate_frisbee",
+  "exported_at": "2026-05-07T00:48:07.493Z",
+  "summary": {
+    "start_time": "2025-06-24T22:43:36+00:00",
+    "end_time": "2025-06-25T00:14:11+00:00",
+    "duration_min": 90.6,
+    "trackpoint_count": 1384,
+    "distance_m": 4851.6
+  },
+  "segments": [
+    {
+      "segment_id": 1,
+      "label": "Segment 1",
+      "start_time": "2025-06-24T22:45:55+00:00",
+      "end_time": "2025-06-24T22:48:16+00:00",
+      "start_idx": 38,
+      "end_idx": 97
+    },
+    {
+      "segment_id": 2,
+      "label": "Segment 2",
+      "start_time": "2025-06-24T22:48:25+00:00",
+      "end_time": "2025-06-24T22:50:46+00:00",
+      "start_idx": 100,
+      "end_idx": 150
+    },
+    {
+      "segment_id": 3,
+      "label": "Segment 3",
+      "start_time": "2025-06-24T22:51:21+00:00",
+      "end_time": "2025-06-24T22:53:48+00:00",
+      "start_idx": 161,
+      "end_idx": 231
+    },
+    {
+      "segment_id": 4,
+      "label": "Segment 4",
+      "start_time": "2025-06-24T22:54:53+00:00",
+      "end_time": "2025-06-24T22:56:44+00:00",
+      "start_idx": 243,
+      "end_idx": 269
+    },
+    {
+      "segment_id": 5,
+      "label": "Segment 5",
+      "start_time": "2025-06-24T22:57:41+00:00",
+      "end_time": "2025-06-24T23:00:58+00:00",
+      "start_idx": 286,
+      "end_idx": 354
+    },
+    {
+      "segment_id": 6,
+      "label": "Segment 6",
+      "start_time": "2025-06-24T23:04:36+00:00",
+      "end_time": "2025-06-24T23:15:38+00:00",
+      "start_idx": 390,
+      "end_idx": 572
+    },
+    {
+      "segment_id": 7,
+      "label": "Segment 7",
+      "start_time": "2025-06-24T23:15:59+00:00",
+      "end_time": "2025-06-24T23:20:41+00:00",
+      "start_idx": 575,
+      "end_idx": 667
+    },
+    {
+      "segment_id": 8,
+      "label": "Segment 8",
+      "start_time": "2025-06-24T23:21:32+00:00",
+      "end_time": "2025-06-24T23:23:14+00:00",
+      "start_idx": 675,
+      "end_idx": 704
+    },
+    {
+      "segment_id": 9,
+      "label": "Segment 9",
+      "start_time": "2025-06-24T23:28:23+00:00",
+      "end_time": "2025-06-24T23:31:43+00:00",
+      "start_idx": 717,
+      "end_idx": 781
+    },
+    {
+      "segment_id": 10,
+      "label": "Segment 10",
+      "start_time": "2025-06-24T23:32:38+00:00",
+      "end_time": "2025-06-24T23:38:11+00:00",
+      "start_idx": 790,
+      "end_idx": 866
+    },
+    {
+      "segment_id": 11,
+      "label": "Segment 11",
+      "start_time": "2025-06-24T23:39:02+00:00",
+      "end_time": "2025-06-24T23:43:52+00:00",
+      "start_idx": 876,
+      "end_idx": 954
+    },
+    {
+      "segment_id": 12,
+      "label": "Segment 12",
+      "start_time": "2025-06-24T23:44:35+00:00",
+      "end_time": "2025-06-24T23:50:43+00:00",
+      "start_idx": 959,
+      "end_idx": 1060
+    },
+    {
+      "segment_id": 13,
+      "label": "Segment 13",
+      "start_time": "2025-06-24T23:53:14+00:00",
+      "end_time": "2025-06-24T23:55:04+00:00",
+      "start_idx": 1081,
+      "end_idx": 1122
+    },
+    {
+      "segment_id": 17,
+      "label": "Segment 17",
+      "start_time": "2025-06-24T23:55:09+00:00",
+      "end_time": "2025-06-25T00:03:05+00:00",
+      "start_idx": 1123,
+      "end_idx": 1256
+    },
+    {
+      "segment_id": 15,
+      "label": "Segment 15",
+      "start_time": "2025-06-25T00:07:18+00:00",
+      "end_time": "2025-06-25T00:10:10+00:00",
+      "start_idx": 1300,
+      "end_idx": 1340
+    }
+  ]
+}

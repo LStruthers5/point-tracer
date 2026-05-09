@@ -15,7 +15,7 @@ interface SessionMapProps {
   displayOptions: MapDisplayOptions;
   units: UnitSystem;
   theme: ThemeMode;
-  showInactiveSegments: boolean;
+  onlySegmentedActivity: boolean;
   reducedAnimation: boolean;
 }
 

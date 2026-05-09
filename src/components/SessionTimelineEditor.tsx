@@ -10,6 +10,7 @@ import type {
   MapLineColor,
   MapTraceMode,
 } from "@/types/map-display";
+import { getMapSpeedGradientStops, MAP_LINE_COLORS } from "@/types/map-display";
 import { Button } from "@/components/ui/button";
 import { PaceGraph } from "@/components/PaceGraph";
 import {
@@ -41,6 +42,7 @@ interface SessionTimelineEditorProps {
   displayOptions: MapDisplayOptions;
   units: UnitSystem;
   showPaceGraph: boolean;
+  manualSegmentIds: Set<number>;
   onSelect: (id: number) => void;
   onHover: (id: number | null) => void;
   onPlay: () => void;
@@ -69,6 +71,7 @@ export function SessionTimelineEditor({
   displayOptions,
   units,
   showPaceGraph,
+  manualSegmentIds,
   onSelect,
   onHover,
   onPlay,
@@ -281,9 +284,9 @@ export function SessionTimelineEditor({
                   <div className="truncate text-sm font-semibold text-foreground">
                     {selectedSegment.label}
                   </div>
-                  <span className="rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-                    Confidence --%
-                  </span>
+                  {getSegmentExplanationTags(selectedSegment, manualSegmentIds).map((tag) => (
+                    <ExplanationTag key={tag}>{tag}</ExplanationTag>
+                  ))}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>
@@ -438,6 +441,7 @@ export function SessionTimelineEditor({
         playheadIdx={playheadIdx}
         draftStartIdx={draftStartIdx}
         draftEndIdx={draftEndIdx}
+        displayOptions={displayOptions}
         showPaceGraph={showPaceGraph}
         units={units}
         onGraphHover={onGraphHover}
@@ -470,6 +474,7 @@ function SegmentRangeDialog({
   playheadIdx,
   draftStartIdx,
   draftEndIdx,
+  displayOptions,
   showPaceGraph,
   units,
   onDraftStartChange,
@@ -489,6 +494,7 @@ function SegmentRangeDialog({
   playheadIdx: number;
   draftStartIdx: number;
   draftEndIdx: number;
+  displayOptions: MapDisplayOptions;
   showPaceGraph: boolean;
   units: UnitSystem;
   onGraphHover: (idx: number | null) => void;
@@ -529,6 +535,7 @@ function SegmentRangeDialog({
             contextEndIdx={contextEndIdx}
             draftStartIdx={draftStart}
             draftEndIdx={draftEnd}
+            displayOptions={displayOptions}
           />
 
           {showPaceGraph ? (
@@ -622,15 +629,18 @@ function SegmentMiniMap({
   contextEndIdx,
   draftStartIdx,
   draftEndIdx,
+  displayOptions,
 }: {
   points: SessionPoint[];
   contextStartIdx: number;
   contextEndIdx: number;
   draftStartIdx: number;
   draftEndIdx: number;
+  displayOptions: MapDisplayOptions;
 }) {
   const contextPoints = points.slice(contextStartIdx, contextEndIdx + 1);
   const draftPoints = points.slice(draftStartIdx, draftEndIdx + 1);
+  const showSpeedGradient = displayOptions.colorMode === "speed";
   const boundsPoints = contextPoints.length > 1 ? contextPoints : draftPoints;
   const minX = Math.min(...boundsPoints.map((point) => point.x_m));
   const maxX = Math.max(...boundsPoints.map((point) => point.x_m));
@@ -645,6 +655,12 @@ function SegmentMiniMap({
   };
   const contextPath = contextPoints.map(toSvgPoint).join(" ");
   const draftPath = draftPoints.map(toSvgPoint).join(" ");
+  const draftSegments = draftPoints.slice(1).map((point, index) => ({
+    key: `${draftPoints[index].t}-${point.t}-${index}`,
+    from: getSvgPoint(draftPoints[index], minX, minY, width, height),
+    to: getSvgPoint(point, minX, minY, width, height),
+    color: miniMapSpeedColor(point.speed_smooth_mps ?? point.speed_mps, displayOptions),
+  }));
   const startPoint = draftPoints[0];
   const endPoint = draftPoints[draftPoints.length - 1];
 
@@ -669,7 +685,21 @@ function SegmentMiniMap({
               className="text-primary/25"
             />
           ) : null}
-          {draftPath ? (
+          {showSpeedGradient && draftSegments.length ? (
+            draftSegments.map((segment) => (
+              <line
+                key={segment.key}
+                x1={segment.from.x}
+                y1={segment.from.y}
+                x2={segment.to.x}
+                y2={segment.to.y}
+                stroke={segment.color}
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))
+          ) : draftPath ? (
             <polyline
               points={draftPath}
               fill="none"
@@ -702,6 +732,19 @@ function SegmentMiniMap({
   );
 }
 
+function getSvgPoint(
+  point: SessionPoint,
+  minX: number,
+  minY: number,
+  width: number,
+  height: number,
+) {
+  return {
+    x: 8 + ((point.x_m - minX) / width) * 84,
+    y: 92 - ((point.y_m - minY) / height) * 84,
+  };
+}
+
 function MapDot({
   point,
   minX,
@@ -731,6 +774,30 @@ function MapDot({
       className={end ? "text-primary" : "text-background"}
     />
   );
+}
+
+function miniMapSpeedColor(speedMps: number, displayOptions: MapDisplayOptions) {
+  const t = Math.max(0, Math.min(1, speedMps / 7));
+  const stops = getMapSpeedGradientStops(displayOptions);
+
+  if (stops.length < 2) return stops[0] ?? MAP_LINE_COLORS[displayOptions.lineColor];
+
+  const scaled = t * (stops.length - 1);
+  const index = Math.min(stops.length - 2, Math.floor(scaled));
+  return mixHex(stops[index], stops[index + 1], scaled - index);
+}
+
+function mixHex(from: string, to: string, amount: number) {
+  const a = hexToRgb(from);
+  const b = hexToRgb(to);
+  const t = Math.max(0, Math.min(1, amount));
+  const mixed = a.map((channel, index) => Math.round(channel + (b[index] - channel) * t));
+  return `#${mixed.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function hexToRgb(hex: string) {
+  const value = hex.replace("#", "");
+  return [0, 2, 4].map((start) => parseInt(value.slice(start, start + 2), 16));
 }
 
 function OptionSelect({
@@ -795,6 +862,24 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="mt-0.5 text-sm font-bold text-foreground">{value}</div>
     </div>
   );
+}
+
+function ExplanationTag({ children }: { children: string }) {
+  return (
+    <span className="rounded border border-border/60 bg-background/45 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+function getSegmentExplanationTags(segment: SessionSegment, manualSegmentIds: Set<number>) {
+  if (manualSegmentIds.has(segment.segment_id) || isManualSegment(segment)) return ["Manual"];
+
+  return ["Auto-detected"];
+}
+
+function isManualSegment(segment: SessionSegment) {
+  return /\bmanual\b/i.test(segment.label) || /\b[A-B]\b/.test(segment.label);
 }
 
 function getEditContext({

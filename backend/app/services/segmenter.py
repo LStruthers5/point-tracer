@@ -23,6 +23,16 @@ class ResetArea:
 class SegmenterOptions:
     pause_speed_mps: float = 0.7
     min_pause_s: float = 45.0
+    min_gap_pause_s: float = 20.0
+    min_short_pause_s: float = 20.0
+    short_pause_speed_mps: float = 0.35
+    restart_speed_mps: float = 0.9
+    restart_window_points: int = 5
+    restart_min_active_points: int = 3
+    restart_max_scan_s: float = 90.0
+    min_gameplay_segment_s: float = 20.0
+    tail_start_fraction: float = 0.82
+    tail_walk_speed_mps: float = 1.2
     min_active_points: int = 6
     reset_area: ResetArea | None = None
     reset_area_pause_distance_m: float = 12.0
@@ -47,6 +57,16 @@ class SegmenterSignals:
 
     points: list[dict[str, Any]]
     reset_area: ResetArea | None = None
+
+
+@dataclass(frozen=True)
+class PauseBoundary:
+    start_idx: int
+    end_idx: int
+    active_end_idx: int
+    next_active_start_idx: int
+    duration_s: float
+    source: str
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -219,6 +239,144 @@ def build_segmenter_signals(
     )
 
 
+def find_meaningful_restart_idx(
+    points: list[dict[str, Any]],
+    start_idx: int,
+    options: SegmenterOptions,
+) -> int:
+    """
+    Move past tiny post-pause repositioning until speed sustains again.
+    If no stronger restart appears quickly, keep the original index.
+    """
+    if start_idx >= len(points):
+        return start_idx
+
+    scan_start_time = points[start_idx]["time"]
+    max_start = len(points) - options.restart_window_points
+
+    for idx in range(start_idx, max_start + 1):
+        elapsed_s = (points[idx]["time"] - scan_start_time).total_seconds()
+        if elapsed_s > options.restart_max_scan_s:
+            break
+
+        window = points[idx : idx + options.restart_window_points]
+        active_points = sum(
+            1
+            for point in window
+            if point["speed_smooth_mps"] >= options.restart_speed_mps
+        )
+        if active_points >= options.restart_min_active_points:
+            return idx
+
+    return start_idx
+
+
+def suppress_non_gameplay_segments(
+    points: list[dict[str, Any]],
+    segments: list[tuple[int, int]],
+    options: SegmenterOptions,
+) -> tuple[list[tuple[int, int]], list[dict[str, Any]]]:
+    suppressed: list[dict[str, Any]] = []
+    kept: list[tuple[int, int]] = []
+    total_duration_s = max(
+        1.0,
+        (points[-1]["time"] - points[0]["time"]).total_seconds(),
+    )
+    main_center_x, main_center_y, main_radius_m = estimate_main_activity_footprint(points)
+
+    for start, end in segments:
+        segment_points = points[start : end + 1]
+        duration_s = (points[end]["time"] - points[start]["time"]).total_seconds()
+        distance_m = sum(point["dist_m"] for point in segment_points)
+        mean_speed_mps = distance_m / duration_s if duration_s > 0 else 0.0
+        start_fraction = (
+            (points[start]["time"] - points[0]["time"]).total_seconds()
+            / total_duration_s
+        )
+        outside_fraction = fraction_outside_main_activity(
+            segment_points,
+            main_center_x,
+            main_center_y,
+            main_radius_m,
+        )
+        reason = None
+
+        if (
+            start_fraction < options.tail_start_fraction
+            and duration_s < options.min_gameplay_segment_s
+            and distance_m < 30.0
+        ):
+            reason = "suppressed_short_post_pause_motion"
+        elif (
+            start_fraction >= options.tail_start_fraction
+            and mean_speed_mps <= options.tail_walk_speed_mps
+            and outside_fraction >= 0.35
+        ):
+            reason = "suppressed_late_off_field_tail"
+
+        if reason:
+            suppressed.append(
+                {
+                    "start_idx": start,
+                    "end_idx": end,
+                    "start_time": points[start]["time"].isoformat(),
+                    "end_time": points[end]["time"].isoformat(),
+                    "duration_s": round(duration_s, 1),
+                    "distance_m": round(distance_m, 1),
+                    "mean_speed_mps": round(mean_speed_mps, 3),
+                    "outside_main_activity_fraction": round(outside_fraction, 3),
+                    "reason": reason,
+                }
+            )
+        else:
+            kept.append((start, end))
+
+    return kept, suppressed
+
+
+def estimate_main_activity_footprint(points: list[dict[str, Any]]) -> tuple[float, float, float]:
+    center_x = statistics.median(point["x_m"] for point in points)
+    center_y = statistics.median(point["y_m"] for point in points)
+    distances = [
+        math.hypot(point["x_m"] - center_x, point["y_m"] - center_y)
+        for point in points
+    ]
+    return center_x, center_y, percentile(distances, 85) * 1.35
+
+
+def fraction_outside_main_activity(
+    points: list[dict[str, Any]],
+    center_x: float,
+    center_y: float,
+    main_radius_m: float,
+) -> float:
+    if not points:
+        return 0.0
+
+    outside = sum(
+        1
+        for point in points
+        if math.hypot(point["x_m"] - center_x, point["y_m"] - center_y)
+        > main_radius_m
+    )
+    return outside / len(points)
+
+
+def percentile(values: list[float], percent: float) -> float:
+    if not values:
+        return 0.0
+
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * percent / 100
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        return ordered[int(rank)]
+
+    weight = rank - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
 def split_segments(
     signals: SegmenterSignals,
     options: SegmenterOptions,
@@ -228,10 +386,40 @@ def split_segments(
     This returns only the active segments, not the pauses themselves.
     """
     points = signals.points
-    pause_runs: list[tuple[int, int]] = []
+    pause_boundaries: list[PauseBoundary] = []
     pause_candidates: list[dict[str, Any]] = []
     in_run = False
     run_start = 0
+
+    for i in range(1, len(points)):
+        gap_s = points[i].get("dt_s")
+        if gap_s is None or gap_s < options.min_gap_pause_s:
+            continue
+
+        pause_boundaries.append(
+            PauseBoundary(
+                start_idx=i - 1,
+                end_idx=i,
+                active_end_idx=i - 1,
+                next_active_start_idx=find_meaningful_restart_idx(points, i, options),
+                duration_s=gap_s,
+                source="gps_gap",
+            )
+        )
+        pause_candidates.append(
+            {
+                "start_idx": i - 1,
+                "end_idx": i,
+                "start_time": points[i - 1]["time"].isoformat(),
+                "end_time": points[i]["time"].isoformat(),
+                "duration_s": round(gap_s, 1),
+                "accepted": True,
+                "speed_pause_points": 0,
+                "reset_pause_points": 0,
+                "source": "gps_gap",
+                "reason": "accepted_missing_reading_gap",
+            }
+        )
 
     for i, point in enumerate(points):
         speed_pause = point["speed_smooth_mps"] < options.pause_speed_mps
@@ -277,7 +465,14 @@ def split_segments(
                 and p["reset_area_distance_m"] <= options.reset_area_pause_distance_m
                 and p["speed_smooth_mps"] < options.pause_speed_mps * 1.5
             )
+            max_speed_mps = max(p["speed_smooth_mps"] for p in run_points)
             accepted = duration_s >= options.min_pause_s
+            short_pause = (
+                duration_s >= options.min_short_pause_s
+                and max_speed_mps <= options.short_pause_speed_mps
+            )
+            if short_pause:
+                accepted = True
 
             pause_candidates.append(
                 {
@@ -289,8 +484,12 @@ def split_segments(
                     "accepted": accepted,
                     "speed_pause_points": speed_pause_points,
                     "reset_pause_points": reset_pause_points,
+                    "max_speed_mps": round(max_speed_mps, 3),
+                    "source": "low_speed_window",
                     "reason": (
                         "accepted_pause_window"
+                        if duration_s >= options.min_pause_s
+                        else "accepted_short_still_pause"
                         if accepted
                         else "rejected_below_min_pause_s"
                     ),
@@ -298,25 +497,50 @@ def split_segments(
             )
 
             if accepted:
-                pause_runs.append((run_start, run_end))
+                pause_boundaries.append(
+                    PauseBoundary(
+                        start_idx=run_start,
+                        end_idx=run_end,
+                        active_end_idx=run_start - 1,
+                        next_active_start_idx=find_meaningful_restart_idx(
+                            points,
+                            run_end + 1,
+                            options,
+                        ),
+                        duration_s=duration_s,
+                        source="low_speed_window",
+                    )
+                )
 
             in_run = False
 
+    pause_boundaries.sort(key=lambda boundary: boundary.active_end_idx)
     segments: list[tuple[int, int]] = []
     prev_end = 0
 
-    for start, end in pause_runs:
+    for boundary in pause_boundaries:
+        if boundary.next_active_start_idx <= prev_end:
+            continue
+
         active_start = prev_end
-        active_end = start - 1
+        active_end = boundary.active_end_idx
 
         if active_end - active_start + 1 >= options.min_active_points:
             segments.append((active_start, active_end))
 
-        prev_end = end + 1
+        prev_end = max(prev_end, boundary.next_active_start_idx)
 
     if len(points) - prev_end >= options.min_active_points:
         segments.append((prev_end, len(points) - 1))
 
+    if not segments:
+        segments = [(0, len(points) - 1)]
+
+    segments, suppressed_segments = suppress_non_gameplay_segments(
+        points,
+        segments,
+        options,
+    )
     if not segments:
         segments = [(0, len(points) - 1)]
 
@@ -326,6 +550,16 @@ def split_segments(
             "thresholds": {
                 "pause_speed_mps": options.pause_speed_mps,
                 "min_pause_s": options.min_pause_s,
+                "min_gap_pause_s": options.min_gap_pause_s,
+                "min_short_pause_s": options.min_short_pause_s,
+                "short_pause_speed_mps": options.short_pause_speed_mps,
+                "restart_speed_mps": options.restart_speed_mps,
+                "restart_window_points": options.restart_window_points,
+                "restart_min_active_points": options.restart_min_active_points,
+                "restart_max_scan_s": options.restart_max_scan_s,
+                "min_gameplay_segment_s": options.min_gameplay_segment_s,
+                "tail_start_fraction": options.tail_start_fraction,
+                "tail_walk_speed_mps": options.tail_walk_speed_mps,
                 "min_active_points": options.min_active_points,
                 "reset_area_pause_distance_m": options.reset_area_pause_distance_m,
             },
@@ -337,15 +571,15 @@ def split_segments(
             "pause_windows": pause_candidates,
             "accepted_pause_windows": [
                 {
-                    "start_idx": start,
-                    "end_idx": end,
-                    "duration_s": round(
-                        (points[end]["time"] - points[start]["time"]).total_seconds(),
-                        1,
-                    ),
+                    "start_idx": boundary.start_idx,
+                    "end_idx": boundary.end_idx,
+                    "next_active_start_idx": boundary.next_active_start_idx,
+                    "duration_s": round(boundary.duration_s, 1),
+                    "source": boundary.source,
                 }
-                for start, end in pause_runs
+                for boundary in pause_boundaries
             ],
+            "suppressed_segments": suppressed_segments,
             "candidate_segments": [
                 {
                     "start_idx": start,
@@ -435,11 +669,13 @@ def build_segmentation_plan(
         ranges, debug = split_segments(signals, options)
         return SegmentationPlan(
             ranges=ranges,
-            method_type="heuristic_pause_split_v2",
+            method_type="heuristic_pause_split_v4",
             notes=(
-                "Segments are created by detecting long low-speed windows and "
-                "splitting active movement periods around them. Optional reset-area "
-                "distance can support pause detection when supplied."
+                "Segments are created by detecting low-speed pause windows, "
+                "short stillness windows, and missing-reading gaps, then "
+                "delaying post-pause restarts until movement meaningfully "
+                "resumes. Optional reset-area distance can support pause "
+                "detection when supplied."
             ),
             debug=debug,
         )

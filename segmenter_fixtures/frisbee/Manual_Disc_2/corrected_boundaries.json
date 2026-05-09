@@ -1,0 +1,111 @@
+{
+  "activity_name": "Manual_Disc_2",
+  "source_file": "Manual_Disc_2.gpx",
+  "sport": "ultimate",
+  "exported_at": "2026-05-09T03:42:14.025Z",
+  "summary": {
+    "start_time": "2025-06-17T22:53:31+00:00",
+    "end_time": "2025-06-18T00:08:53+00:00",
+    "duration_min": 75.4,
+    "trackpoint_count": 1225,
+    "distance_m": 3900.3
+  },
+  "segments": [
+    {
+      "segment_id": 1,
+      "label": "Segment 1",
+      "start_time": "2025-06-17T22:53:31+00:00",
+      "end_time": "2025-06-17T22:56:44+00:00",
+      "start_idx": 0,
+      "end_idx": 81
+    },
+    {
+      "segment_id": 2,
+      "label": "Segment 2",
+      "start_time": "2025-06-17T23:01:34+00:00",
+      "end_time": "2025-06-17T23:02:27+00:00",
+      "start_idx": 158,
+      "end_idx": 181
+    },
+    {
+      "segment_id": 3,
+      "label": "Segment 3",
+      "start_time": "2025-06-17T23:03:32+00:00",
+      "end_time": "2025-06-17T23:04:51+00:00",
+      "start_idx": 195,
+      "end_idx": 227
+    },
+    {
+      "segment_id": 4,
+      "label": "Segment 4",
+      "start_time": "2025-06-17T23:06:53+00:00",
+      "end_time": "2025-06-17T23:10:16+00:00",
+      "start_idx": 264,
+      "end_idx": 329
+    },
+    {
+      "segment_id": 6,
+      "label": "Segment 6",
+      "start_time": "2025-06-17T23:20:44+00:00",
+      "end_time": "2025-06-17T23:21:34+00:00",
+      "start_idx": 468,
+      "end_idx": 485
+    },
+    {
+      "segment_id": 7,
+      "label": "Segment 7",
+      "start_time": "2025-06-17T23:24:34+00:00",
+      "end_time": "2025-06-17T23:25:33+00:00",
+      "start_idx": 529,
+      "end_idx": 546
+    },
+    {
+      "segment_id": 8,
+      "label": "Segment 8",
+      "start_time": "2025-06-17T23:30:54+00:00",
+      "end_time": "2025-06-17T23:35:50+00:00",
+      "start_idx": 619,
+      "end_idx": 720
+    },
+    {
+      "segment_id": 9,
+      "label": "Segment 9",
+      "start_time": "2025-06-17T23:36:36+00:00",
+      "end_time": "2025-06-17T23:41:17+00:00",
+      "start_idx": 738,
+      "end_idx": 832
+    },
+    {
+      "segment_id": 10,
+      "label": "Segment 10",
+      "start_time": "2025-06-17T23:42:10+00:00",
+      "end_time": "2025-06-17T23:43:57+00:00",
+      "start_idx": 842,
+      "end_idx": 880
+    },
+    {
+      "segment_id": 11,
+      "label": "Segment 11",
+      "start_time": "2025-06-17T23:46:40+00:00",
+      "end_time": "2025-06-17T23:48:20+00:00",
+      "start_idx": 913,
+      "end_idx": 945
+    },
+    {
+      "segment_id": 12,
+      "label": "Segment 12",
+      "start_time": "2025-06-17T23:48:58+00:00",
+      "end_time": "2025-06-17T23:49:48+00:00",
+      "start_idx": 954,
+      "end_idx": 975
+    },
+    {
+      "segment_id": 13,
+      "label": "Segment 13",
+      "start_time": "2025-06-17T23:53:57+00:00",
+      "end_time": "2025-06-17T23:55:33+00:00",
+      "start_idx": 1028,
+      "end_idx": 1068
+    }
+  ]
+}
