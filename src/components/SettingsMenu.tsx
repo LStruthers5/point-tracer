@@ -96,9 +96,10 @@ export function SettingsMenu({ settings, onChange }: SettingsMenuProps) {
             ]}
           />
           <SettingSwitch
-            label="Show inactive segments"
-            checked={settings.showInactiveSegments}
-            onCheckedChange={(checked) => update("showInactiveSegments", checked)}
+            label="Only segmented activity"
+            description="Limit map traces and heatmaps to points inside detected or edited segments."
+            checked={settings.onlySegmentedActivity}
+            onCheckedChange={(checked) => update("onlySegmentedActivity", checked)}
           />
           <SettingSwitch
             label="Show pace graph"

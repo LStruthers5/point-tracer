@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Maximize2, Pause, Play, RotateCcw, X } from "lucide-react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -15,10 +15,12 @@ import { SettingsMenu } from "@/components/SettingsMenu";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Slider } from "@/components/ui/slider";
 import { useSegmentPlayback } from "@/hooks/use-segment-playback";
 import type { MapDisplayOptions } from "@/types/map-display";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
 import type { SessionData, SessionPoint, SessionSegment } from "@/types/session";
+import { formatDuration } from "@/lib/format";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
 const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
@@ -40,6 +42,8 @@ function Index() {
   const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
   const [showFullRoute, setShowFullRoute] = useState(true);
   const [graphPreviewIdx, setGraphPreviewIdx] = useState<number | null>(null);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  const [manualSegmentIds, setManualSegmentIds] = useState<Set<number>>(() => new Set());
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
 
@@ -53,6 +57,17 @@ function Index() {
     root.classList.toggle("dark", settings.theme === "dark");
     root.classList.toggle("reduced-motion", settings.reducedAnimation);
   }, [settings.reducedAnimation, settings.theme]);
+
+  useEffect(() => {
+    if (!mapExpanded) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMapExpanded(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mapExpanded]);
 
   // Seed with demo data on first load
   useEffect(() => {
@@ -110,6 +125,7 @@ function Index() {
     setSelectedSegmentId(null);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
+    setManualSegmentIds(new Set());
     setShowFullRoute(true);
     sessionPlayback.seek(0);
     sessionPlayback.pause();
@@ -178,6 +194,7 @@ function Index() {
         segment.segment_id === selectedSegment.segment_id ? [first, second] : [segment],
       ),
     });
+    setManualSegmentIds((current) => new Set([...current, first.segment_id, second.segment_id]));
     setSelectedSegmentId(first.segment_id);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
@@ -204,11 +221,12 @@ function Index() {
         .map((candidate) => (candidate.segment_id === segmentId ? updated : candidate))
         .sort((a, b) => a.start_idx - b.start_idx),
     });
+    setManualSegmentIds((current) => new Set([...current, segmentId]));
     setSelectedSegmentId(segmentId);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
     setShowFullRoute(true);
-    sessionPlayback.seek(startIdx);
+    sessionPlayback.seek(endIdx);
   };
 
   const focusSelectedSegment = () => {
@@ -229,6 +247,11 @@ function Index() {
     setSelectedSegmentId(null);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
+    setManualSegmentIds((current) => {
+      const next = new Set(current);
+      next.delete(selectedSegment.segment_id);
+      return next;
+    });
   };
 
   const addSegmentAtPlayhead = (startIdx: number, endIdx: number) => {
@@ -252,11 +275,12 @@ function Index() {
       ...data,
       segments: [...data.segments, newSegment].sort((a, b) => a.start_idx - b.start_idx),
     });
+    setManualSegmentIds((current) => new Set([...current, nextId]));
     setSelectedSegmentId(nextId);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
     setShowFullRoute(true);
-    sessionPlayback.seek(startIdx);
+    sessionPlayback.seek(endIdx);
   };
 
   const goToSegment = (offset: number) => {
@@ -395,8 +419,19 @@ function Index() {
         <ResizablePanel minSize="28rem">
           <main className="h-full overflow-hidden">
             <ResizablePanelGroup orientation="vertical">
-              <ResizablePanel defaultSize="62%" minSize="18rem">
-                <div className="h-full p-3 pb-0">
+              <ResizablePanel defaultSize="68%" minSize="18rem">
+                <div className="relative h-full p-3 pb-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMapExpanded(true)}
+                    className="absolute left-1/2 top-6 z-[950] h-8 -translate-x-1/2 gap-1.5 bg-background/85 text-xs shadow-lg backdrop-blur"
+                    title="Expand map playback"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    Expand
+                  </Button>
                   <SessionMap
                     points={data.points}
                     segments={data.segments}
@@ -409,13 +444,13 @@ function Index() {
                     displayOptions={mapDisplayOptions}
                     units={settings.units}
                     theme={settings.theme}
-                    showInactiveSegments={settings.showInactiveSegments}
+                    onlySegmentedActivity={settings.onlySegmentedActivity}
                     reducedAnimation={settings.reducedAnimation}
                   />
                 </div>
               </ResizablePanel>
               <ResizableHandle withHandle className="bg-border/40" />
-              <ResizablePanel defaultSize="38%" minSize="14rem">
+              <ResizablePanel defaultSize="32%" minSize="9rem">
                 <div className="h-full overflow-y-auto p-3 space-y-3">
                   {showFullRoute ? (
                     <SessionTimelineEditor
@@ -430,6 +465,7 @@ function Index() {
                       displayOptions={mapDisplayOptions}
                       units={settings.units}
                       showPaceGraph={settings.showPaceGraph}
+                      manualSegmentIds={manualSegmentIds}
                       onSelect={handleSelectTimelineSegment}
                       onHover={setHoveredSegmentId}
                       onPlay={sessionPlayback.play}
@@ -498,6 +534,130 @@ function Index() {
           </main>
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {mapExpanded ? (
+        <div className="fixed inset-0 z-[1200] flex flex-col bg-background p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Expanded map
+              </div>
+              <div className="truncate text-lg font-semibold text-foreground">
+                {showFullRoute ? data.activity_name : (selectedSegment?.label ?? "Focus Segment")}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMapExpanded(false)}
+              className="h-9 gap-1.5"
+            >
+              <X className="h-4 w-4" />
+              Exit
+            </Button>
+          </div>
+
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/40">
+            <SessionMap
+              points={data.points}
+              segments={data.segments}
+              selectedSegmentId={mapSelectedSegmentId}
+              hoveredSegmentId={hoveredSegmentId}
+              showFullRoute={showFullRoute}
+              playbackIdx={selectedSegment ? (focusedPreviewOffset ?? playback.idx) : null}
+              sessionPlaybackIdx={showFullRoute ? effectiveSessionIdx : null}
+              playbackActive={showFullRoute ? sessionPlayback.playing : playback.playing}
+              displayOptions={mapDisplayOptions}
+              units={settings.units}
+              theme={settings.theme}
+              onlySegmentedActivity={settings.onlySegmentedActivity}
+              reducedAnimation={settings.reducedAnimation}
+            />
+
+            <ExpandedMapPlaybackControls
+              label={showFullRoute ? "Session playback" : (selectedSegment?.label ?? "Segment playback")}
+              playing={showFullRoute ? sessionPlayback.playing : playback.playing}
+              idx={showFullRoute ? sessionPlayback.idx : playback.idx}
+              totalPoints={showFullRoute ? sessionTotalPoints : totalPoints}
+              durationS={showFullRoute ? data.summary.duration_min * 60 : (selectedSegment?.duration_s ?? 0)}
+              onPlay={showFullRoute ? sessionPlayback.play : playback.play}
+              onPause={showFullRoute ? sessionPlayback.pause : playback.pause}
+              onRestart={showFullRoute ? sessionPlayback.restart : playback.restart}
+              onSeek={showFullRoute ? sessionPlayback.seek : playback.seek}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExpandedMapPlaybackControls({
+  label,
+  playing,
+  idx,
+  totalPoints,
+  durationS,
+  onPlay,
+  onPause,
+  onRestart,
+  onSeek,
+}: {
+  label: string;
+  playing: boolean;
+  idx: number;
+  totalPoints: number;
+  durationS: number;
+  onPlay: () => void;
+  onPause: () => void;
+  onRestart: () => void;
+  onSeek: (idx: number) => void;
+}) {
+  const canScrub = totalPoints > 1;
+  const progress = canScrub ? idx / (totalPoints - 1) : 0;
+  const currentTime = durationS * progress;
+
+  return (
+    <div className="absolute inset-x-4 bottom-4 z-[950] rounded-2xl border border-border/55 bg-background/88 p-3 shadow-2xl backdrop-blur">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          {label}
+        </div>
+        <div className="font-mono text-[11px] text-muted-foreground">
+          {formatDuration(currentTime)} / {formatDuration(durationS)}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={!canScrub}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-foreground/80 transition hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Restart playback"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={playing ? onPause : onPlay}
+          disabled={!canScrub}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={playing ? "Pause playback" : "Play playback"}
+        >
+          {playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
+        </button>
+        <Slider
+          value={[idx]}
+          min={0}
+          max={Math.max(1, totalPoints - 1)}
+          step={1}
+          disabled={!canScrub}
+          onValueChange={(value) => onSeek(value[0])}
+          className="flex-1"
+        />
+      </div>
     </div>
   );
 }
@@ -591,8 +751,14 @@ function loadSettings(): AppSettings {
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!stored) return DEFAULT_APP_SETTINGS;
 
-    const parsed = { ...DEFAULT_APP_SETTINGS, ...JSON.parse(stored) } as AppSettings;
+    const storedSettings = JSON.parse(stored) as Partial<AppSettings> & {
+      showInactiveSegments?: boolean;
+    };
+    const parsed = { ...DEFAULT_APP_SETTINGS, ...storedSettings } as AppSettings;
     if ((parsed.defaultTraceMode as string) === "fade") parsed.defaultTraceMode = "full";
+    if ("showInactiveSegments" in storedSettings && !("onlySegmentedActivity" in storedSettings)) {
+      parsed.onlySegmentedActivity = false;
+    }
     return parsed;
   } catch {
     return DEFAULT_APP_SETTINGS;

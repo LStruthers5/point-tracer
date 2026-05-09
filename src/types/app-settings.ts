@@ -10,7 +10,7 @@ export interface AppSettings {
   defaultPlaybackSpeed: number;
   defaultTraceMode: MapTraceMode;
   heatmapMode: MapHeatmapMode;
-  showInactiveSegments: boolean;
+  onlySegmentedActivity: boolean;
   lineColorMode: LineColorMode;
   lineColor: MapLineColor;
   showPaceGraph: boolean;
@@ -23,7 +23,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultPlaybackSpeed: 1,
   defaultTraceMode: "full",
   heatmapMode: "occupancy",
-  showInactiveSegments: true,
+  onlySegmentedActivity: false,
   lineColorMode: "solid",
   lineColor: "green",
   showPaceGraph: true,

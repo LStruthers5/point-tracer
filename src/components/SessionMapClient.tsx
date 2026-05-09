@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
@@ -17,18 +17,40 @@ const FOCUSED_FIT_MAX_ZOOM = 22;
 const MAP_MAX_ZOOM = 22;
 const TILE_NATIVE_MAX_ZOOM = 20;
 const STREAK_POINTS = 48;
-const HEATMAP_CELL_PX = 20;
-const HEATMAP_BLUR_PX = 8;
+const HEATMAP_CELL_PX = 14;
+const HEATMAP_REFERENCE_ZOOM = 18;
+const HEATMAP_MIN_CELL_PX = 7;
+const HEATMAP_MAX_CELL_PX = 18;
+const HEATMAP_MIN_BLUR_PX = 3;
+const HEATMAP_MAX_BLUR_PX = 7;
 const CORE_BBOX_CELL_METERS = 24;
 
-const BASEMAPS: Record<ThemeMode, { url: string; attribution: string }> = {
-  dark: {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+type BasemapStyle = "street" | "satellite" | "dark";
+
+const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_API_KEY as string | undefined;
+const MAPTILER_ATTRIBUTION =
+  '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
+const BASEMAPS: Record<
+  BasemapStyle,
+  { label: string; url: string; attribution: string; format: "png" | "jpg" }
+> = {
+  street: {
+    label: "Street",
+    url: `https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=${MAPTILER_KEY ?? ""}`,
+    attribution: MAPTILER_ATTRIBUTION,
+    format: "png",
   },
-  light: {
-    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+  satellite: {
+    label: "Satellite",
+    url: `https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY ?? ""}`,
+    attribution: MAPTILER_ATTRIBUTION,
+    format: "jpg",
+  },
+  dark: {
+    label: "Dark",
+    url: `https://api.maptiler.com/maps/dataviz-v4-dark/{z}/{x}/{y}.png?key=${MAPTILER_KEY ?? ""}`,
+    attribution: MAPTILER_ATTRIBUTION,
+    format: "png",
   },
 };
 
@@ -44,7 +66,7 @@ interface SessionMapClientProps {
   displayOptions: MapDisplayOptions;
   units: UnitSystem;
   theme: ThemeMode;
-  showInactiveSegments: boolean;
+  onlySegmentedActivity: boolean;
   reducedAnimation: boolean;
 }
 
@@ -79,12 +101,22 @@ export function SessionMapClient({
   displayOptions,
   units,
   theme,
-  showInactiveSegments,
+  onlySegmentedActivity,
   reducedAnimation,
 }: SessionMapClientProps) {
-  const fullRoute = points.map((p) => [p.lat, p.lon] as [number, number]);
+  const themedBasemapStyle = theme === "dark" ? "dark" : "street";
+  const [basemapOverride, setBasemapOverride] = useState<BasemapStyle | null>(null);
+  const basemapStyle = basemapOverride ?? themedBasemapStyle;
+
+  const segmentedPoints = useMemo(
+    () => getSegmentedPoints(points, segments),
+    [points, segments],
+  );
+  const mapDataPoints =
+    onlySegmentedActivity && segmentedPoints.length > 0 ? segmentedPoints : points;
+  const fullRoute = mapDataPoints.map((p) => [p.lat, p.lon] as [number, number]);
   const lineColor = MAP_LINE_COLORS[displayOptions.lineColor];
-  const basemap = BASEMAPS[theme];
+  const basemap = BASEMAPS[basemapStyle];
   const routeMode = getRouteDisplayMode(displayOptions.traceMode);
 
   const activeId = hoveredSegmentId ?? selectedSegmentId;
@@ -97,8 +129,8 @@ export function SessionMapClient({
         .slice(activeSeg.start_idx, activeSeg.end_idx + 1)
         .map((p) => [p.lat, p.lon] as [number, number])
     : null;
-  const rawBbox = getRawBbox(points);
-  const coreBbox = getCoreActivityBbox(points) ?? rawBbox;
+  const rawBbox = getRawBbox(mapDataPoints);
+  const coreBbox = getCoreActivityBbox(mapDataPoints) ?? rawBbox;
 
   const bbox: SegmentBbox = focused && activeSeg ? activeSeg.bbox : coreBbox;
 
@@ -120,6 +152,7 @@ export function SessionMapClient({
   const showSpeedLegend = displayOptions.colorMode === "speed" && routeMode.showSpeedLegend;
   const showHeatmapLegend = routeMode.showHeatmap;
   const showMapOverlay = Boolean(playbackPoint || showSpeedLegend || showHeatmapLegend);
+  const availableBasemapStyles = useMemo(() => ["street", "satellite", "dark"] as BasemapStyle[], []);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
@@ -132,11 +165,15 @@ export function SessionMapClient({
         attributionControl={true}
       >
         <TileLayer
-          key={theme}
+          key={basemapStyle}
           url={basemap.url}
           attribution={basemap.attribution}
           maxZoom={MAP_MAX_ZOOM}
           maxNativeZoom={TILE_NATIVE_MAX_ZOOM}
+          tileSize={512}
+          zoomOffset={-1}
+          minZoom={1}
+          crossOrigin={true}
         />
 
         <FitBounds bbox={bbox} focused={focused} />
@@ -145,7 +182,7 @@ export function SessionMapClient({
           <HeatmapCanvas
             points={
               showFullRoute || !activeSeg
-                ? points
+                ? mapDataPoints
                 : points.slice(activeSeg.start_idx, activeSeg.end_idx + 1)
             }
             mode={displayOptions.heatmapMode}
@@ -156,7 +193,7 @@ export function SessionMapClient({
 
         {showFullRoute && routeMode.showFullRoute && displayOptions.colorMode === "speed" ? (
           <SpeedGradientRoute
-            points={points}
+            points={mapDataPoints}
             weight={2}
             opacity={0.35}
             displayOptions={displayOptions}
@@ -174,7 +211,7 @@ export function SessionMapClient({
 
         {!showFullRoute &&
           routeMode.showInactiveSegments &&
-          showInactiveSegments &&
+          !onlySegmentedActivity &&
           segments
             .filter((s) => s.segment_id !== activeId)
             .map((s) => (
@@ -258,6 +295,83 @@ export function SessionMapClient({
           {showHeatmapLegend ? <HeatmapLegend displayOptions={displayOptions} /> : null}
         </div>
       ) : null}
+
+      <BasemapStyleControl
+        value={basemapStyle}
+        styles={availableBasemapStyles}
+        hasApiKey={Boolean(MAPTILER_KEY)}
+        onChange={setBasemapOverride}
+      />
+    </div>
+  );
+}
+
+function getSegmentedPoints(points: SessionPoint[], segments: SessionSegment[]) {
+  if (!segments.length) return [];
+
+  const included = new Set<number>();
+  for (const segment of segments) {
+    for (let idx = segment.start_idx; idx <= segment.end_idx; idx += 1) {
+      included.add(idx);
+    }
+  }
+
+  return points.filter((_, index) => included.has(index));
+}
+
+function BasemapStyleControl({
+  value,
+  styles,
+  hasApiKey,
+  onChange,
+}: {
+  value: BasemapStyle;
+  styles: BasemapStyle[];
+  hasApiKey: boolean;
+  onChange: (style: BasemapStyle) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="absolute bottom-4 left-4 z-[900]">
+      <div className="relative">
+        <button
+          type="button"
+          className="rounded-xl border border-border/55 bg-background/85 px-3 py-2 text-xs font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          aria-label="Choose map style"
+        >
+          {BASEMAPS[value].label}
+        </button>
+
+        {open ? (
+          <div className="absolute bottom-full left-0 mb-2 w-36 overflow-hidden rounded-xl border border-border/55 bg-background/95 p-1 shadow-xl backdrop-blur">
+            {styles.map((style) => (
+              <button
+                key={style}
+                type="button"
+                className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-medium transition ${
+                  style === value
+                    ? "bg-primary/18 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+                onClick={() => {
+                  onChange(style);
+                  setOpen(false);
+                }}
+              >
+                {BASEMAPS[style].label}
+              </button>
+            ))}
+            {!hasApiKey ? (
+              <div className="border-t border-border/60 px-3 py-2 text-[10px] leading-snug text-muted-foreground">
+                Set VITE_MAPTILER_API_KEY to load MapTiler tiles.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -411,7 +525,7 @@ function HeatmapCanvas({
     canvas.style.inset = "0";
     canvas.style.zIndex = "420";
     canvas.style.pointerEvents = "none";
-    canvas.style.mixBlendMode = theme === "light" ? "multiply" : "screen";
+    canvas.style.mixBlendMode = "normal";
     container.appendChild(canvas);
 
     const draw = () => {
@@ -429,7 +543,15 @@ function HeatmapCanvas({
       context.clearRect(0, 0, size.x, size.y);
       context.globalCompositeOperation = "source-over";
 
-      drawUnifiedHeatmap(context, buildHeatmapCells(points, map), size, mode, lineColor);
+      const detail = getHeatmapDetail(map.getZoom());
+      drawUnifiedHeatmap(
+        context,
+        buildHeatmapCells(points, map, detail.cellPx),
+        size,
+        mode,
+        lineColor,
+        detail,
+      );
     };
 
     draw();
@@ -453,13 +575,44 @@ interface HeatmapCell {
   speedSum: number;
 }
 
-function buildHeatmapCells(points: SessionPoint[], map: ReturnType<typeof useMap>) {
+interface HeatmapDetail {
+  cellPx: number;
+  blurPx: number;
+  radiusBasePx: number;
+  radiusRangePx: number;
+}
+
+function getHeatmapDetail(zoom: number): HeatmapDetail {
+  const zoomDelta = HEATMAP_REFERENCE_ZOOM - zoom;
+  const detailBoost = Math.max(0, Math.min(1.8, zoomDelta / 3));
+  const cellPx = Math.max(
+    HEATMAP_MIN_CELL_PX,
+    Math.min(HEATMAP_MAX_CELL_PX, HEATMAP_CELL_PX - detailBoost * 4),
+  );
+  const blurPx = Math.max(
+    HEATMAP_MIN_BLUR_PX,
+    Math.min(HEATMAP_MAX_BLUR_PX, 6 - detailBoost * 1.7),
+  );
+
+  return {
+    cellPx,
+    blurPx,
+    radiusBasePx: 14 + detailBoost * 2,
+    radiusRangePx: 20 + detailBoost * 3,
+  };
+}
+
+function buildHeatmapCells(
+  points: SessionPoint[],
+  map: ReturnType<typeof useMap>,
+  cellPx: number,
+) {
   const cells = new Map<string, HeatmapCell>();
 
   for (const point of points) {
     const projected = map.latLngToContainerPoint([point.lat, point.lon]);
-    const cellX = Math.round(projected.x / HEATMAP_CELL_PX);
-    const cellY = Math.round(projected.y / HEATMAP_CELL_PX);
+    const cellX = Math.round(projected.x / cellPx);
+    const cellY = Math.round(projected.y / cellPx);
     const key = `${cellX}:${cellY}`;
     const existing = cells.get(key);
     const speed = point.speed_smooth_mps ?? point.speed_mps ?? 0;
@@ -469,8 +622,8 @@ function buildHeatmapCells(points: SessionPoint[], map: ReturnType<typeof useMap
       existing.speedSum += speed;
     } else {
       cells.set(key, {
-        x: cellX * HEATMAP_CELL_PX,
-        y: cellY * HEATMAP_CELL_PX,
+        x: cellX * cellPx,
+        y: cellY * cellPx,
         gridX: cellX,
         gridY: cellY,
         count: 1,
@@ -488,10 +641,11 @@ function drawUnifiedHeatmap(
   size: { x: number; y: number },
   mode: MapDisplayOptions["heatmapMode"],
   lineColor: MapLineColor,
+  detail: HeatmapDetail,
 ) {
   if (!cells.length || size.x <= 0 || size.y <= 0) return;
 
-  const heatmapStops = getMapSingleColorGradientStops(lineColor);
+  const heatmapStops = getBrightHeatmapGradientStops(lineColor);
   const densityCanvas = document.createElement("canvas");
   densityCanvas.width = size.x;
   densityCanvas.height = size.y;
@@ -502,7 +656,7 @@ function drawUnifiedHeatmap(
 
   for (const cell of cells) {
     const strength = Math.sqrt(cell.count / maxCount);
-    const radius = 18 + strength * 28;
+    const radius = detail.radiusBasePx + strength * detail.radiusRangePx;
     const alpha = 0.16 + strength * 0.6;
     const gradient = densityContext.createRadialGradient(cell.x, cell.y, 0, cell.x, cell.y, radius);
     gradient.addColorStop(0, `rgba(0, 0, 0, ${alpha})`);
@@ -521,7 +675,7 @@ function drawUnifiedHeatmap(
   const smoothContext = smoothCanvas.getContext("2d");
   if (!smoothContext) return;
 
-  smoothContext.filter = `blur(${HEATMAP_BLUR_PX}px)`;
+  smoothContext.filter = `blur(${detail.blurPx}px)`;
   smoothContext.drawImage(densityCanvas, 0, 0);
   smoothContext.filter = "none";
 
@@ -532,7 +686,17 @@ function drawUnifiedHeatmap(
   const densityScale = getDensityScale(densityData.data, maxAlpha);
 
   drawUnifiedHeatmapShadow(context, densityData, size, heatmapStops[2], maxAlpha, densityScale);
-  drawHeatmapBands(context, densityData, size, cells, mode, heatmapStops, maxAlpha, densityScale);
+  drawHeatmapBands(
+    context,
+    densityData,
+    size,
+    cells,
+    mode,
+    heatmapStops,
+    maxAlpha,
+    densityScale,
+    detail.cellPx,
+  );
 }
 
 function drawUnifiedHeatmapShadow(
@@ -581,6 +745,7 @@ function drawHeatmapBands(
   heatmapStops: string[],
   maxAlpha: number,
   densityScale: DensityScale,
+  cellPx: number,
 ) {
   const cellIndex = new Map(cells.map((cell) => [`${cell.gridX}:${cell.gridY}`, cell]));
   const maxSpeed = Math.max(1, ...cells.map((cell) => cell.speedSum / cell.count));
@@ -602,10 +767,10 @@ function drawHeatmapBands(
     const intensity =
       mode === "occupancy"
         ? occupancyBandIntensity(density, densityScale)
-        : speedBandIntensity(x, y, cellIndex, maxSpeed);
+        : speedBandIntensity(x, y, cellIndex, maxSpeed, cellPx);
     const color = heatmapColor(intensity, heatmapStops);
     const [r, g, b] = hexToRgb(color);
-    const alpha = Math.round(Math.min(0.82, 0.14 + Math.pow(density, 0.72) * 0.72) * 255);
+    const alpha = Math.round(Math.min(0.96, 0.36 + Math.pow(density, 0.62) * 0.6) * 255);
 
     image.data[index] = r;
     image.data[index + 1] = g;
@@ -671,9 +836,10 @@ function speedBandIntensity(
   y: number,
   cellIndex: Map<string, HeatmapCell>,
   maxSpeed: number,
+  cellPx: number,
 ) {
-  const cellX = Math.round(x / HEATMAP_CELL_PX);
-  const cellY = Math.round(y / HEATMAP_CELL_PX);
+  const cellX = Math.round(x / cellPx);
+  const cellY = Math.round(y / cellPx);
   const cell = cellIndex.get(`${cellX}:${cellY}`);
   const speedRatio = cell ? cell.speedSum / cell.count / maxSpeed : 0.12;
 
@@ -705,7 +871,7 @@ function heatmapColor(t: number, stops: string[]) {
 }
 
 function HeatmapLegend({ displayOptions }: { displayOptions: MapDisplayOptions }) {
-  const stops = getMapSingleColorGradientStops(displayOptions.lineColor);
+  const stops = getBrightHeatmapGradientStops(displayOptions.lineColor);
   const gradient = `linear-gradient(90deg, ${stops.join(", ")})`;
   const isSpeed = displayOptions.heatmapMode === "speed";
 
@@ -727,6 +893,16 @@ function HeatmapLegend({ displayOptions }: { displayOptions: MapDisplayOptions }
       </div>
     </div>
   );
+}
+
+function getBrightHeatmapGradientStops(lineColor: MapLineColor) {
+  const [light, base, dark] = getMapSingleColorGradientStops(lineColor);
+
+  return [
+    mixHex(light, base, 0.28),
+    mixHex(light, base, 0.74),
+    mixHex(base, dark, 0.38),
+  ];
 }
 
 function hexToRgba(hex: string, alpha: number) {
