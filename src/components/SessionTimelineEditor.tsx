@@ -12,6 +12,7 @@ import type {
 } from "@/types/map-display";
 import { getMapSpeedGradientStops, MAP_LINE_COLORS } from "@/types/map-display";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { PaceGraph } from "@/components/PaceGraph";
 import {
   Dialog,
@@ -42,6 +43,7 @@ interface SessionTimelineEditorProps {
   displayOptions: MapDisplayOptions;
   units: UnitSystem;
   showPaceGraph: boolean;
+  showHeartRateChart: boolean;
   manualSegmentIds: Set<number>;
   onSelect: (id: number) => void;
   onHover: (id: number | null) => void;
@@ -53,9 +55,9 @@ interface SessionTimelineEditorProps {
   onGraphSelect: (idx: number) => void;
   onDisplayOptionsChange: (options: MapDisplayOptions) => void;
   onFocusSelected: () => void;
-  onUpdateSegment: (segmentId: number, startIdx: number, endIdx: number) => void;
   onDeleteSelected: () => void;
-  onAddSegmentAtPlayhead: (startIdx: number, endIdx: number) => void;
+  onUpdateSegment: (segmentId: number, startIdx: number, endIdx: number, label?: string) => void;
+  onAddSegmentAtPlayhead: (startIdx: number, endIdx: number, label?: string) => void;
   onSplitSelected: () => void;
 }
 
@@ -71,6 +73,7 @@ export function SessionTimelineEditor({
   displayOptions,
   units,
   showPaceGraph,
+  showHeartRateChart,
   manualSegmentIds,
   onSelect,
   onHover,
@@ -90,6 +93,7 @@ export function SessionTimelineEditor({
   const [editorMode, setEditorMode] = useState<"add" | "edit" | null>(null);
   const [draftStartIdx, setDraftStartIdx] = useState(0);
   const [draftEndIdx, setDraftEndIdx] = useState(0);
+  const [draftLabel, setDraftLabel] = useState("");
   const selectedSegment = segments.find((segment) => segment.segment_id === selectedId) ?? null;
   const canSplitSelected = Boolean(
     selectedSegment &&
@@ -130,6 +134,7 @@ export function SessionTimelineEditor({
     });
     setDraftStartIdx(context.startIdx);
     setDraftEndIdx(context.endIdx);
+    setDraftLabel("");
     setEditorMode("add");
   };
 
@@ -137,6 +142,7 @@ export function SessionTimelineEditor({
     if (!selectedSegment) return;
     setDraftStartIdx(selectedSegment.start_idx);
     setDraftEndIdx(selectedSegment.end_idx);
+    setDraftLabel(selectedSegment.label);
     setEditorMode("edit");
   };
 
@@ -146,9 +152,9 @@ export function SessionTimelineEditor({
     if (endIdx <= startIdx) return;
 
     if (editorMode === "add") {
-      onAddSegmentAtPlayhead(startIdx, endIdx);
+      onAddSegmentAtPlayhead(startIdx, endIdx, draftLabel.trim());
     } else if (editorMode === "edit" && selectedSegment) {
-      onUpdateSegment(selectedSegment.segment_id, startIdx, endIdx);
+      onUpdateSegment(selectedSegment.segment_id, startIdx, endIdx, draftLabel.trim());
     }
 
     setEditorMode(null);
@@ -420,10 +426,12 @@ export function SessionTimelineEditor({
             points={points}
             startIdx={0}
             endIdx={points.length - 1}
+            segmentHighlights={segments}
             selectedStartIdx={selectedSegment?.start_idx}
             selectedEndIdx={selectedSegment?.end_idx}
             playheadIdx={playheadIdx}
             units={units}
+            showHeartRate={showHeartRateChart}
             onHoverPoint={onGraphHover}
             onSelectPoint={onGraphSelect}
           />
@@ -441,8 +449,10 @@ export function SessionTimelineEditor({
         playheadIdx={playheadIdx}
         draftStartIdx={draftStartIdx}
         draftEndIdx={draftEndIdx}
+        draftLabel={draftLabel}
         displayOptions={displayOptions}
         showPaceGraph={showPaceGraph}
+        showHeartRateChart={showHeartRateChart}
         units={units}
         onGraphHover={onGraphHover}
         onGraphSelect={onGraphSelect}
@@ -454,6 +464,7 @@ export function SessionTimelineEditor({
           setDraftEndIdx(idx);
           if (draftStartIdx >= idx) setDraftStartIdx(Math.max(editContext.startIdx, idx - 1));
         }}
+        onDraftLabelChange={setDraftLabel}
         onOpenChange={(open) => {
           if (!open) setEditorMode(null);
         }}
@@ -474,11 +485,14 @@ function SegmentRangeDialog({
   playheadIdx,
   draftStartIdx,
   draftEndIdx,
+  draftLabel,
   displayOptions,
   showPaceGraph,
+  showHeartRateChart,
   units,
   onDraftStartChange,
   onDraftEndChange,
+  onDraftLabelChange,
   onGraphHover,
   onGraphSelect,
   onOpenChange,
@@ -494,13 +508,16 @@ function SegmentRangeDialog({
   playheadIdx: number;
   draftStartIdx: number;
   draftEndIdx: number;
+  draftLabel: string;
   displayOptions: MapDisplayOptions;
   showPaceGraph: boolean;
+  showHeartRateChart: boolean;
   units: UnitSystem;
   onGraphHover: (idx: number | null) => void;
   onGraphSelect: (idx: number) => void;
   onDraftStartChange: (idx: number) => void;
   onDraftEndChange: (idx: number) => void;
+  onDraftLabelChange: (label: string) => void;
   onOpenChange: (open: boolean) => void;
   onApply: () => void;
 }) {
@@ -529,6 +546,18 @@ function SegmentRangeDialog({
             <span>Playhead {formatPointTime(points[playheadIdx])}</span>
           </div>
 
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Segment name
+            </span>
+            <Input
+              value={draftLabel}
+              onChange={(event) => onDraftLabelChange(event.target.value)}
+              placeholder={mode === "edit" ? selectedSegment?.label ?? "Segment name" : "Segment name"}
+              className="h-9 rounded-xl border-border/70 bg-secondary/35 text-sm"
+            />
+          </label>
+
           <SegmentMiniMap
             points={points}
             contextStartIdx={contextStartIdx}
@@ -547,6 +576,7 @@ function SegmentRangeDialog({
               selectedEndIdx={draftEnd}
               playheadIdx={playheadIdx}
               units={units}
+              showHeartRate={showHeartRateChart}
               onHoverPoint={onGraphHover}
               onSelectPoint={onGraphSelect}
             />

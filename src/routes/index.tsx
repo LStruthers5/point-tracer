@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { Download, Maximize2, Pause, Play, RotateCcw, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, FolderOpen, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -12,18 +12,37 @@ import { UploadPanel } from "@/components/UploadPanel";
 import { PlaybackControls } from "@/components/PlaybackControls";
 import { PaceGraph } from "@/components/PaceGraph";
 import { SettingsMenu } from "@/components/SettingsMenu";
+import { SegmentAnalyticsPanel } from "@/components/SegmentAnalyticsPanel";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Slider } from "@/components/ui/slider";
 import { useSegmentPlayback } from "@/hooks/use-segment-playback";
-import type { MapDisplayOptions } from "@/types/map-display";
+import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
+import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
 import type { SessionData, SessionPoint, SessionSegment } from "@/types/session";
 import { formatDuration } from "@/lib/format";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
 const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
+const ACTIVITY_LIBRARY_STORAGE_KEY = "pointtracer.activityLibrary.v1";
+
+interface LocalActivityRecord {
+  id: string;
+  activity_name: string;
+  source_file: string;
+  sport: string;
+  segmentation_mode: string;
+  uploaded_at: string;
+  updated_at: string;
+  edited_manually: boolean;
+  manual_segment_ids: number[];
+  map_display_options: MapDisplayOptions;
+  map_elements: MapElement[];
+  session: SessionData;
+}
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -43,9 +62,17 @@ function Index() {
   const [showFullRoute, setShowFullRoute] = useState(true);
   const [graphPreviewIdx, setGraphPreviewIdx] = useState<number | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [selectedBasemapStyle, setSelectedBasemapStyle] = useState<MapBasemapStyle | null>(null);
   const [manualSegmentIds, setManualSegmentIds] = useState<Set<number>>(() => new Set());
+  const [mapElements, setMapElements] = useState<MapElement[]>([]);
+  const [activityLibrary, setActivityLibrary] = useState<LocalActivityRecord[]>(() =>
+    loadActivityLibrary(),
+  );
+  const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
+  const focusAnalyticsRef = useRef<HTMLDivElement | null>(null);
+  const shouldScrollFocusAnalyticsRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
@@ -57,6 +84,17 @@ function Index() {
     root.classList.toggle("dark", settings.theme === "dark");
     root.classList.toggle("reduced-motion", settings.reducedAnimation);
   }, [settings.reducedAnimation, settings.theme]);
+
+  useEffect(() => {
+    if (showFullRoute || !shouldScrollFocusAnalyticsRef.current) return;
+
+    const timeout = window.setTimeout(() => {
+      focusAnalyticsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      shouldScrollFocusAnalyticsRef.current = false;
+    }, 50);
+
+    return () => window.clearTimeout(timeout);
+  }, [showFullRoute, selectedSegmentId]);
 
   useEffect(() => {
     if (!mapExpanded) return;
@@ -73,6 +111,30 @@ function Index() {
   useEffect(() => {
     if (demoData && !data) setData(demoData);
   }, [demoData, data]);
+
+  useEffect(() => {
+    if (!data || !activeActivityId) return;
+
+    const timeout = window.setTimeout(() => {
+      setActivityLibrary((current) => {
+        const next = upsertActivityRecord(
+          current,
+          buildActivityRecord({
+            data,
+            id: activeActivityId,
+            existing: current.find((record) => record.id === activeActivityId),
+            manualSegmentIds,
+            mapDisplayOptions,
+            mapElements,
+          }),
+        );
+        persistActivityLibrary(next);
+        return next;
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeActivityId, data, manualSegmentIds, mapDisplayOptions, mapElements]);
 
   const segments = data?.segments ?? EMPTY_SEGMENTS;
   const selectedSegment = segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
@@ -121,11 +183,25 @@ function Index() {
   };
 
   const handleUploaded = (next: SessionData) => {
+    const id = `${slugify(next.activity_name)}-${Date.now()}`;
+    const record = buildActivityRecord({
+      data: next,
+      id,
+      manualSegmentIds: new Set(),
+      mapDisplayOptions,
+      mapElements: [],
+    });
+    const nextLibrary = upsertActivityRecord(activityLibrary, record);
+
+    persistActivityLibrary(nextLibrary);
+    setActivityLibrary(nextLibrary);
+    setActiveActivityId(id);
     setData(next);
     setSelectedSegmentId(null);
     setHoveredSegmentId(null);
     setGraphPreviewIdx(null);
     setManualSegmentIds(new Set());
+    setMapElements([]);
     setShowFullRoute(true);
     sessionPlayback.seek(0);
     sessionPlayback.pause();
@@ -153,7 +229,10 @@ function Index() {
   const handleSelectSegment = (id: number) => {
     setGraphPreviewIdx(null);
     setSelectedSegmentId((prev) => (prev === id ? null : id));
-    if (id !== selectedSegmentId) setShowFullRoute(false);
+    if (id !== selectedSegmentId) {
+      shouldScrollFocusAnalyticsRef.current = true;
+      setShowFullRoute(false);
+    }
   };
 
   const handleSelectTimelineSegment = (id: number) => {
@@ -201,7 +280,7 @@ function Index() {
     setShowFullRoute(true);
   };
 
-  const updateSegmentRange = (segmentId: number, startIdx: number, endIdx: number) => {
+  const updateSegmentRange = (segmentId: number, startIdx: number, endIdx: number, label?: string) => {
     if (!data) return;
     const segment = data.segments.find((candidate) => candidate.segment_id === segmentId);
     if (!segment || endIdx <= startIdx) return;
@@ -212,7 +291,7 @@ function Index() {
       startIdx,
       endIdx,
       id: segment.segment_id,
-      label: segment.label,
+      label: label?.trim() || segment.label,
     });
 
     setData({
@@ -232,7 +311,19 @@ function Index() {
   const focusSelectedSegment = () => {
     if (!selectedSegment) return;
     setGraphPreviewIdx(null);
+    shouldScrollFocusAnalyticsRef.current = true;
     setShowFullRoute(false);
+  };
+
+  const focusSegmentFromOverview = (segmentId: number) => {
+    const segment = segments.find((candidate) => candidate.segment_id === segmentId);
+    if (!segment) return;
+    setGraphPreviewIdx(null);
+    setSelectedSegmentId(segmentId);
+    shouldScrollFocusAnalyticsRef.current = true;
+    setShowFullRoute(false);
+    playback.seek(0);
+    playback.pause();
   };
 
   const deleteSelectedSegment = () => {
@@ -254,7 +345,7 @@ function Index() {
     });
   };
 
-  const addSegmentAtPlayhead = (startIdx: number, endIdx: number) => {
+  const addSegmentAtPlayhead = (startIdx: number, endIdx: number, label?: string) => {
     if (!data || data.points.length < 2) return;
     if (endIdx <= startIdx) return;
 
@@ -268,7 +359,7 @@ function Index() {
       startIdx,
       endIdx,
       id: nextId,
-      label: `Segment ${nextId}`,
+      label: label?.trim() || `Segment ${nextId}`,
     });
 
     setData({
@@ -289,6 +380,7 @@ function Index() {
     if (next) {
       setSelectedSegmentId(next.segment_id);
       setGraphPreviewIdx(null);
+      shouldScrollFocusAnalyticsRef.current = true;
       setShowFullRoute(false);
     }
   };
@@ -302,6 +394,34 @@ function Index() {
     if (idx < selectedSegment.start_idx || idx > selectedSegment.end_idx) return;
 
     playback.seek(idx - selectedSegment.start_idx);
+  };
+
+  const openLocalActivity = (record: LocalActivityRecord) => {
+    setActiveActivityId(record.id);
+    setData(record.session);
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setManualSegmentIds(new Set(record.manual_segment_ids));
+    setMapElements(record.map_elements ?? []);
+    setShowFullRoute(true);
+    setMapExpanded(false);
+    setSettings((current) => ({
+      ...current,
+      defaultTraceMode: record.map_display_options.traceMode,
+      heatmapMode: record.map_display_options.heatmapMode,
+      lineColor: record.map_display_options.lineColor,
+      lineColorMode: mapDisplayOptionsToLineColorMode(record.map_display_options),
+    }));
+    sessionPlayback.seek(0);
+    sessionPlayback.pause();
+  };
+
+  const deleteLocalActivity = (id: string) => {
+    const next = activityLibrary.filter((record) => record.id !== id);
+    persistActivityLibrary(next);
+    setActivityLibrary(next);
+    if (id === activeActivityId) setActiveActivityId(null);
   };
 
   const exportCorrectedBoundaries = () => {
@@ -368,6 +488,7 @@ function Index() {
             onClick={() => {
               setShowFullRoute(false);
               setGraphPreviewIdx(null);
+              shouldScrollFocusAnalyticsRef.current = true;
             }}
             className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
               !showFullRoute
@@ -377,6 +498,12 @@ function Index() {
           >
             Focus Segment
           </button>
+          <ActivityLibraryMenu
+            records={activityLibrary}
+            activeId={activeActivityId}
+            onOpen={openLocalActivity}
+            onDelete={deleteLocalActivity}
+          />
           <Button
             type="button"
             variant="outline"
@@ -446,6 +573,10 @@ function Index() {
                     theme={settings.theme}
                     onlySegmentedActivity={settings.onlySegmentedActivity}
                     reducedAnimation={settings.reducedAnimation}
+                    mapElements={mapElements}
+                    onMapElementsChange={setMapElements}
+                    basemapStyle={selectedBasemapStyle}
+                    onBasemapStyleChange={setSelectedBasemapStyle}
                   />
                 </div>
               </ResizablePanel>
@@ -453,34 +584,44 @@ function Index() {
               <ResizablePanel defaultSize="32%" minSize="9rem">
                 <div className="h-full overflow-y-auto p-3 space-y-3">
                   {showFullRoute ? (
-                    <SessionTimelineEditor
-                      points={data.points}
-                      segments={data.segments}
-                      summary={data.summary}
-                      selectedId={selectedSegmentId}
-                      hoveredId={hoveredSegmentId}
-                      playheadIdx={sessionPlayback.idx}
-                      totalPoints={sessionTotalPoints}
-                      playing={sessionPlayback.playing}
-                      displayOptions={mapDisplayOptions}
-                      units={settings.units}
-                      showPaceGraph={settings.showPaceGraph}
-                      manualSegmentIds={manualSegmentIds}
-                      onSelect={handleSelectTimelineSegment}
-                      onHover={setHoveredSegmentId}
-                      onPlay={sessionPlayback.play}
-                      onPause={sessionPlayback.pause}
-                      onRestart={sessionPlayback.restart}
-                      onSeek={sessionPlayback.seek}
-                      onGraphHover={setGraphPreviewIdx}
-                      onGraphSelect={seekSessionGraphPoint}
-                      onDisplayOptionsChange={updateMapDisplayOptions}
-                      onFocusSelected={focusSelectedSegment}
-                      onUpdateSegment={updateSegmentRange}
-                      onDeleteSelected={deleteSelectedSegment}
-                      onAddSegmentAtPlayhead={addSegmentAtPlayhead}
-                      onSplitSelected={splitSelectedSegment}
-                    />
+                    <>
+                      <SessionTimelineEditor
+                        points={data.points}
+                        segments={data.segments}
+                        summary={data.summary}
+                        selectedId={selectedSegmentId}
+                        hoveredId={hoveredSegmentId}
+                        playheadIdx={sessionPlayback.idx}
+                        totalPoints={sessionTotalPoints}
+                        playing={sessionPlayback.playing}
+                        displayOptions={mapDisplayOptions}
+                        units={settings.units}
+                        showPaceGraph={settings.showPaceGraph}
+                        showHeartRateChart={settings.showHeartRateChart}
+                        manualSegmentIds={manualSegmentIds}
+                        onSelect={handleSelectTimelineSegment}
+                        onHover={setHoveredSegmentId}
+                        onPlay={sessionPlayback.play}
+                        onPause={sessionPlayback.pause}
+                        onRestart={sessionPlayback.restart}
+                        onSeek={sessionPlayback.seek}
+                        onGraphHover={setGraphPreviewIdx}
+                        onGraphSelect={seekSessionGraphPoint}
+                        onDisplayOptionsChange={updateMapDisplayOptions}
+                        onFocusSelected={focusSelectedSegment}
+                        onUpdateSegment={updateSegmentRange}
+                        onDeleteSelected={deleteSelectedSegment}
+                        onAddSegmentAtPlayhead={addSegmentAtPlayhead}
+                        onSplitSelected={splitSelectedSegment}
+                      />
+                      <SegmentAnalyticsPanel
+                        points={data.points}
+                        segments={data.segments}
+                        mapElements={mapElements}
+                        units={settings.units}
+                        onFocusSegment={focusSegmentFromOverview}
+                      />
+                    </>
                   ) : (
                     <>
                       <PlaybackControls
@@ -499,18 +640,46 @@ function Index() {
                         onSeek={playback.seek}
                         onSpeedChange={playback.setSpeed}
                       />
-                      <AnalyticsCards segment={selectedSegment} units={settings.units} />
+                      <div ref={focusAnalyticsRef} className="scroll-mt-3">
+                        <AnalyticsCards
+                          segment={selectedSegment}
+                          points={data.points}
+                          segments={data.segments}
+                          mapElements={mapElements}
+                          units={settings.units}
+                        />
+                      </div>
                       {settings.showPaceGraph && selectedSegment ? (
                         <PaceGraph
                           points={data.points}
                           startIdx={selectedSegment.start_idx}
-                          endIdx={selectedSegment.end_idx}
+                          endIdx={getFocusGraphEndIdx(data.segments, selectedIndex, data.points.length)}
+                          selectedStartIdx={selectedSegment.start_idx}
+                          selectedEndIdx={selectedSegment.end_idx}
                           playheadIdx={selectedSegment.start_idx + playback.idx}
                           units={settings.units}
+                          showHeartRate={settings.showHeartRateChart}
                           onHoverPoint={setGraphPreviewIdx}
                           onSelectPoint={seekFocusGraphPoint}
                         />
                       ) : null}
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 text-xs"
+                          onClick={() => {
+                            if (!selectedSegment) return;
+                            setGraphPreviewIdx(null);
+                            setShowFullRoute(true);
+                            sessionPlayback.seek(selectedSegment.start_idx);
+                          }}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Back to Session View
+                        </Button>
+                      </div>
                       <div className="flex flex-col sm:flex-row gap-3">
                         <div className="flex-1">
                           <EditControls />
@@ -573,6 +742,10 @@ function Index() {
               theme={settings.theme}
               onlySegmentedActivity={settings.onlySegmentedActivity}
               reducedAnimation={settings.reducedAnimation}
+              mapElements={mapElements}
+              onMapElementsChange={setMapElements}
+              basemapStyle={selectedBasemapStyle}
+              onBasemapStyleChange={setSelectedBasemapStyle}
             />
 
             <ExpandedMapPlaybackControls
@@ -662,6 +835,108 @@ function ExpandedMapPlaybackControls({
   );
 }
 
+function getFocusGraphEndIdx(segments: SessionSegment[], selectedIndex: number, pointCount: number) {
+  if (selectedIndex < 0) return Math.max(0, pointCount - 1);
+  const selected = segments[selectedIndex];
+  const next = segments[selectedIndex + 1];
+  if (!selected) return Math.max(0, pointCount - 1);
+  if (!next) return selected.end_idx;
+  return Math.min(Math.max(selected.end_idx, next.start_idx), Math.max(0, pointCount - 1));
+}
+
+function ActivityLibraryMenu({
+  records,
+  activeId,
+  onOpen,
+  onDelete,
+}: {
+  records: LocalActivityRecord[];
+  activeId: string | null;
+  onOpen: (record: LocalActivityRecord) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs text-muted-foreground"
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+          Library
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="z-[2200] w-80 rounded-2xl border-border/70 bg-card p-3 shadow-2xl"
+      >
+        <div className="mb-3">
+          <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Activity library
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            Uploaded activities autosave locally in this browser.
+          </div>
+        </div>
+
+        {records.length === 0 ? (
+          <div className="rounded-xl border border-border/50 bg-secondary/35 px-3 py-4 text-center text-xs text-muted-foreground">
+            Upload an activity to add it here.
+          </div>
+        ) : (
+          <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+            {records.map((record) => (
+              <div
+                key={record.id}
+                className="flex items-center gap-2 rounded-xl border border-border/45 bg-secondary/30 p-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpen(record)}
+                  className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left transition hover:bg-background/70"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="truncate text-xs font-semibold text-foreground">
+                      {record.activity_name}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-primary">
+                      {record.sport}
+                    </span>
+                    {record.id === activeId ? (
+                      <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-primary">
+                        Open
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 truncate text-[10px] text-muted-foreground">
+                    Autosaved {formatSavedAt(record.updated_at)} ·{" "}
+                    {record.session.segments.length} segments
+                  </div>
+                  <div className="mt-1 truncate text-[10px] text-muted-foreground/80">
+                    {record.edited_manually ? "Edited manually" : "Auto-detected"} ·{" "}
+                    {record.source_file || "No source file"}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(record.id)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Delete local activity ${record.activity_name}`}
+                  title="Delete local activity"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function createFallbackSegment(points: SessionPoint[]): SessionSegment {
   return buildSegmentFromRange({
     points,
@@ -742,6 +1017,109 @@ function calculateDistanceMeters(points: SessionPoint[]): number {
     const dy = point.y_m - previous.y_m;
     return total + Math.sqrt(dx * dx + dy * dy);
   }, 0);
+}
+
+function buildActivityRecord({
+  data,
+  id,
+  existing,
+  manualSegmentIds,
+  mapDisplayOptions,
+  mapElements,
+}: {
+  data: SessionData;
+  id: string;
+  existing?: LocalActivityRecord;
+  manualSegmentIds: Set<number>;
+  mapDisplayOptions: MapDisplayOptions;
+  mapElements: MapElement[];
+}): LocalActivityRecord {
+  const now = new Date().toISOString();
+
+  return {
+    id,
+    activity_name: data.activity_name,
+    source_file: data.source_file,
+    sport: data.sport,
+    segmentation_mode: data.segmentation_method.type,
+    uploaded_at: existing?.uploaded_at ?? now,
+    updated_at: now,
+    edited_manually: manualSegmentIds.size > 0 || Boolean(existing?.edited_manually),
+    manual_segment_ids: [...manualSegmentIds],
+    map_display_options: mapDisplayOptions,
+    map_elements: mapElements,
+    session: data,
+  };
+}
+
+function upsertActivityRecord(records: LocalActivityRecord[], record: LocalActivityRecord) {
+  return [record, ...records.filter((candidate) => candidate.id !== record.id)];
+}
+
+function loadActivityLibrary(): LocalActivityRecord[] {
+  if (typeof localStorage === "undefined") return [];
+
+  try {
+    const stored =
+      localStorage.getItem(ACTIVITY_LIBRARY_STORAGE_KEY) ??
+      localStorage.getItem("pointtracer.reviewedSessions.v1");
+    if (!stored) return [];
+
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map(normalizeActivityRecord).filter(isLocalActivityRecord);
+  } catch {
+    return [];
+  }
+}
+
+function persistActivityLibrary(records: LocalActivityRecord[]) {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(ACTIVITY_LIBRARY_STORAGE_KEY, JSON.stringify(records));
+}
+
+function normalizeActivityRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+
+  const record = value as Partial<LocalActivityRecord> & { saved_at?: string };
+
+  return {
+    ...record,
+    uploaded_at: record.uploaded_at ?? record.saved_at ?? new Date().toISOString(),
+    updated_at: record.updated_at ?? record.saved_at ?? new Date().toISOString(),
+    map_elements: record.map_elements ?? [],
+  };
+}
+
+function isLocalActivityRecord(value: unknown): value is LocalActivityRecord {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<LocalActivityRecord>;
+  return Boolean(
+    typeof candidate.id === "string" &&
+      typeof candidate.activity_name === "string" &&
+      typeof candidate.uploaded_at === "string" &&
+      typeof candidate.updated_at === "string" &&
+      candidate.session &&
+      Array.isArray(candidate.session.points) &&
+    Array.isArray(candidate.session.segments) &&
+      Array.isArray(candidate.manual_segment_ids) &&
+      Array.isArray(candidate.map_elements ?? []) &&
+      candidate.map_display_options,
+  );
+}
+
+function formatSavedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function loadSettings(): AppSettings {

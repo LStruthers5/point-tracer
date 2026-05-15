@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, useMap } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Crosshair, Map as MapIcon, Pin, Plus, X } from "lucide-react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
-import type { MapDisplayOptions, MapLineColor } from "@/types/map-display";
+import type { MapBasemapStyle, MapDisplayOptions, MapLineColor } from "@/types/map-display";
+import type { FieldMapElement, MapElement, MapElementType, PinMapElement } from "@/types/map-elements";
 import {
   getMapSingleColorGradientStops,
   getMapSpeedGradientStops,
@@ -17,6 +20,11 @@ const FOCUSED_FIT_MAX_ZOOM = 22;
 const MAP_MAX_ZOOM = 22;
 const TILE_NATIVE_MAX_ZOOM = 20;
 const STREAK_POINTS = 48;
+const STREAK_LEAD_IN_POINTS = 36;
+const STREAK_START_PREVIEW_MAX_POINTS = 44;
+const STREAK_START_PREVIEW_SOLID_SECONDS = 8;
+const STREAK_START_PREVIEW_FADE_SECONDS = 38;
+const STREAK_START_PREVIEW_MAX_METERS = 70;
 const HEATMAP_CELL_PX = 14;
 const HEATMAP_REFERENCE_ZOOM = 18;
 const HEATMAP_MIN_CELL_PX = 7;
@@ -25,13 +33,11 @@ const HEATMAP_MIN_BLUR_PX = 3;
 const HEATMAP_MAX_BLUR_PX = 7;
 const CORE_BBOX_CELL_METERS = 24;
 
-type BasemapStyle = "street" | "satellite" | "dark";
-
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_API_KEY as string | undefined;
 const MAPTILER_ATTRIBUTION =
   '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
 const BASEMAPS: Record<
-  BasemapStyle,
+  MapBasemapStyle,
   { label: string; url: string; attribution: string; format: "png" | "jpg" }
 > = {
   street: {
@@ -68,6 +74,10 @@ interface SessionMapClientProps {
   theme: ThemeMode;
   onlySegmentedActivity: boolean;
   reducedAnimation: boolean;
+  mapElements: MapElement[];
+  onMapElementsChange: (elements: MapElement[]) => void;
+  basemapStyle: MapBasemapStyle | null;
+  onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
 }
 
 function FitBounds({ bbox, focused }: { bbox: SegmentBbox; focused: boolean }) {
@@ -103,10 +113,18 @@ export function SessionMapClient({
   theme,
   onlySegmentedActivity,
   reducedAnimation,
+  mapElements,
+  onMapElementsChange,
+  basemapStyle: selectedBasemapStyle,
+  onBasemapStyleChange,
 }: SessionMapClientProps) {
   const themedBasemapStyle = theme === "dark" ? "dark" : "street";
-  const [basemapOverride, setBasemapOverride] = useState<BasemapStyle | null>(null);
-  const basemapStyle = basemapOverride ?? themedBasemapStyle;
+  const [elementPickerOpen, setElementPickerOpen] = useState(false);
+  const [placingElementType, setPlacingElementType] = useState<MapElementType | null>(null);
+  const [selectedMapElementId, setSelectedMapElementId] = useState<string | null>(null);
+  const suppressNextMapClickRef = useRef(false);
+  const basemapStyle = selectedBasemapStyle ?? themedBasemapStyle;
+  const selectedMapElement = mapElements.find((element) => element.id === selectedMapElementId);
 
   const segmentedPoints = useMemo(
     () => getSegmentedPoints(points, segments),
@@ -136,9 +154,9 @@ export function SessionMapClient({
 
   const playbackTrailPoints =
     showFullRoute && sessionPlaybackIdx != null && sessionPlaybackIdx >= 1
-      ? getSessionTrailPoints(points, sessionPlaybackIdx, displayOptions.traceMode)
+      ? getSessionTrailPoints(points, segments, sessionPlaybackIdx, displayOptions.traceMode)
       : selectedSeg && playbackIdx != null && playbackIdx >= 1 && routeMode.showPlaybackTrail
-        ? points.slice(selectedSeg.start_idx, selectedSeg.start_idx + playbackIdx + 1)
+        ? getFocusedTrailPoints(points, selectedSeg, playbackIdx, displayOptions.traceMode)
         : null;
   const playbackTrail = playbackTrailPoints?.map((p) => [p.lat, p.lon] as [number, number]) ?? null;
 
@@ -151,8 +169,7 @@ export function SessionMapClient({
   const currentSpeedMps = playbackPoint?.speed_smooth_mps ?? playbackPoint?.speed_mps ?? null;
   const showSpeedLegend = displayOptions.colorMode === "speed" && routeMode.showSpeedLegend;
   const showHeatmapLegend = routeMode.showHeatmap;
-  const showMapOverlay = Boolean(playbackPoint || showSpeedLegend || showHeatmapLegend);
-  const availableBasemapStyles = useMemo(() => ["street", "satellite", "dark"] as BasemapStyle[], []);
+  const availableBasemapStyles = useMemo(() => ["street", "satellite", "dark"] as MapBasemapStyle[], []);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
@@ -177,6 +194,24 @@ export function SessionMapClient({
         />
 
         <FitBounds bbox={bbox} focused={focused} />
+
+        <MapElementPlacementHandler
+          placingType={placingElementType}
+          onPlace={(lat, lon) => {
+            const nextElement = createMapElement(placingElementType, lat, lon);
+            onMapElementsChange([...mapElements, nextElement]);
+            setSelectedMapElementId(nextElement.id);
+            setPlacingElementType(null);
+            setElementPickerOpen(false);
+          }}
+          onDeselect={() => {
+            if (suppressNextMapClickRef.current) {
+              suppressNextMapClickRef.current = false;
+              return;
+            }
+            setSelectedMapElementId(null);
+          }}
+        />
 
         {routeMode.showHeatmap ? (
           <HeatmapCanvas
@@ -203,9 +238,17 @@ export function SessionMapClient({
             positions={fullRoute}
             pathOptions={{
               color: lineColor,
-              weight: 2,
-              opacity: 0.35,
+              weight: 1.6,
+              opacity: 0.32,
             }}
+          />
+        ) : null}
+
+        {displayOptions.traceMode === "streak" && !playbackActive && !playbackTrail ? (
+          <StreakStartPreview
+            points={points}
+            segments={showFullRoute ? segments : selectedSeg ? [selectedSeg] : []}
+            lineColor={lineColor}
           />
         ) : null}
 
@@ -220,7 +263,7 @@ export function SessionMapClient({
                 positions={points
                   .slice(s.start_idx, s.end_idx + 1)
                   .map((p) => [p.lat, p.lon] as [number, number])}
-                pathOptions={{ color: lineColor, weight: 2, opacity: 0.25 }}
+                pathOptions={{ color: lineColor, weight: 1.5, opacity: 0.22 }}
               />
             ))}
 
@@ -229,7 +272,7 @@ export function SessionMapClient({
             positions={segmentRoute}
             pathOptions={{
               color: lineColor,
-              weight: 4,
+              weight: 3.2,
               opacity: playbackTrail ? 0.35 : 0.9,
             }}
           />
@@ -240,14 +283,14 @@ export function SessionMapClient({
         displayOptions.colorMode === "speed" ? (
           <SpeedGradientRoute
             points={playbackTrailPoints}
-            weight={5}
+            weight={4}
             opacity={1}
             displayOptions={displayOptions}
           />
         ) : playbackTrail && routeMode.showPlaybackTrail && playbackTrail.length >= 2 ? (
           <Polyline
             positions={playbackTrail}
-            pathOptions={{ color: lineColor, weight: 5, opacity: 1 }}
+            pathOptions={{ color: lineColor, weight: 4, opacity: 1 }}
           />
         ) : null}
 
@@ -258,7 +301,7 @@ export function SessionMapClient({
               radius={9}
               pathOptions={{
                 color: "#ffffff",
-                weight: 4,
+                weight: 3.2,
                 fillColor: lineColor,
                 fillOpacity: 1,
                 opacity: 1,
@@ -270,38 +313,90 @@ export function SessionMapClient({
               radius={14}
               pathOptions={{
                 color: lineColor,
-                weight: 2,
+                weight: 1.6,
                 fillOpacity: 0,
                 opacity: 0.5,
               }}
             />
           </Pane>
         )}
+
+        <MapElementsOverlay
+          elements={mapElements}
+          selectedId={selectedMapElementId}
+          onSelect={setSelectedMapElementId}
+          onElementInteraction={() => {
+            suppressNextMapClickRef.current = true;
+          }}
+          onChange={onMapElementsChange}
+        />
       </MapContainer>
 
-      {showMapOverlay ? (
-        <div className="pointer-events-none absolute right-4 top-4 z-[900] w-40 space-y-2">
+      {(elementPickerOpen || placingElementType) && (
+        <div className="pointer-events-none absolute inset-0 z-[920] bg-black/35 backdrop-blur-[1px]" />
+      )}
+
+      {elementPickerOpen ? (
+        <MapElementPicker
+          onSelect={(type) => {
+            setPlacingElementType(type);
+            setElementPickerOpen(false);
+          }}
+          onClose={() => setElementPickerOpen(false)}
+        />
+      ) : null}
+
+      {placingElementType ? (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-[940] -translate-x-1/2 rounded-lg border border-white/15 bg-background/90 px-2.5 py-1.5 text-[10px] font-medium text-foreground shadow-xl backdrop-blur">
+          Click the map to place {MAP_ELEMENT_LABELS[placingElementType].toLowerCase()}
+        </div>
+      ) : null}
+
+      <div className="pointer-events-none absolute right-4 top-4 z-[900] w-32 space-y-1.5">
           {playbackPoint ? (
-            <div className="rounded-xl border border-border/55 bg-background/85 px-3 py-2 shadow-lg backdrop-blur">
-              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 shadow-lg backdrop-blur">
+              <div className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">
                 Current pace
               </div>
-              <div className="mt-0.5 font-mono text-sm font-semibold text-foreground">
+              <div className="mt-0.5 font-mono text-[11px] font-semibold text-foreground">
                 {formatNullableSpeed(currentSpeedMps, units)}
               </div>
             </div>
           ) : null}
           {showSpeedLegend ? <MapSpeedLegend displayOptions={displayOptions} /> : null}
           {showHeatmapLegend ? <HeatmapLegend displayOptions={displayOptions} /> : null}
+          <button
+            type="button"
+            onClick={() => {
+              setElementPickerOpen(true);
+              setPlacingElementType(null);
+            }}
+            className="pointer-events-auto flex w-full items-center justify-center gap-1 rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
+          >
+            <Plus className="h-3 w-3" />
+            Add element
+          </button>
         </div>
-      ) : null}
 
       <BasemapStyleControl
         value={basemapStyle}
         styles={availableBasemapStyles}
         hasApiKey={Boolean(MAPTILER_KEY)}
-        onChange={setBasemapOverride}
+        onChange={onBasemapStyleChange}
       />
+
+      {selectedMapElement ? (
+        <button
+          type="button"
+          onClick={() => {
+            onMapElementsChange(mapElements.filter((element) => element.id !== selectedMapElement.id));
+            setSelectedMapElementId(null);
+          }}
+        className="absolute left-4 top-32 z-[900] rounded-lg border border-destructive/35 bg-background/90 px-2.5 py-1.5 text-[10px] font-semibold text-destructive shadow-lg backdrop-blur transition hover:bg-destructive/10"
+      >
+        Delete {selectedMapElement.type === "field" ? "field" : "marker"}
+      </button>
+      ) : null}
     </div>
   );
 }
@@ -319,16 +414,514 @@ function getSegmentedPoints(points: SessionPoint[], segments: SessionSegment[]) 
   return points.filter((_, index) => included.has(index));
 }
 
+const MAP_ELEMENT_LABELS: Record<MapElementType, string> = {
+  field: "Field overlay",
+  bench: "Rest area",
+  focal: "Focal point",
+};
+
+function MapElementPlacementHandler({
+  placingType,
+  onPlace,
+  onDeselect,
+}: {
+  placingType: MapElementType | null;
+  onPlace: (lat: number, lon: number) => void;
+  onDeselect: () => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (!placingType) {
+        onDeselect();
+        return;
+      }
+      onPlace(event.latlng.lat, event.latlng.lng);
+    },
+  });
+
+  return null;
+}
+
+function MapElementPicker({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (type: MapElementType) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-[940] flex items-center justify-center p-6">
+      <div className="relative grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute -right-2 -top-12 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-background/90 text-foreground shadow-xl backdrop-blur transition hover:bg-secondary"
+          aria-label="Close map element picker"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <MapElementCard
+          type="field"
+          title="Field Overlay"
+          description="Place a court or field outline."
+          onSelect={onSelect}
+        />
+        <MapElementCard
+          type="focal"
+          title="Focal Point"
+          description="Mark a tactical anchor point."
+          onSelect={onSelect}
+        />
+        <MapElementCard
+          type="bench"
+          title="Rest Area"
+          description="Mark a bench or sideline area."
+          onSelect={onSelect}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MapElementCard({
+  type,
+  title,
+  description,
+  onSelect,
+}: {
+  type: MapElementType;
+  title: string;
+  description: string;
+  onSelect: (type: MapElementType) => void;
+}) {
+  const Icon = type === "field" ? MapIcon : type === "focal" ? Crosshair : Pin;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(type)}
+      className="group flex min-h-40 flex-col items-center justify-center rounded-2xl border border-white/15 bg-background/88 p-5 text-center shadow-2xl backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-background/95"
+    >
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/35 bg-primary/12 text-primary transition group-hover:bg-primary/18">
+        <Icon className="h-8 w-8" />
+      </div>
+      <div className="text-lg font-semibold text-foreground">{title}</div>
+      <div className="mt-2 text-xs leading-relaxed text-muted-foreground">{description}</div>
+    </button>
+  );
+}
+
+function createMapElement(type: MapElementType | null, lat: number, lon: number): MapElement {
+  const id = `map-element-${Date.now()}`;
+
+  if (type === "field") {
+    return {
+      id,
+      type: "field",
+      label: MAP_ELEMENT_LABELS.field,
+      center: { lat, lon },
+      widthM: 92,
+      heightM: 42,
+      rotationDeg: 0,
+    };
+  }
+
+  const pinType = type ?? "focal";
+  return {
+    id,
+    type: pinType,
+    label: MAP_ELEMENT_LABELS[pinType],
+    position: { lat, lon },
+  };
+}
+
+function MapElementsOverlay({
+  elements,
+  selectedId,
+  onSelect,
+  onElementInteraction,
+  onChange,
+}: {
+  elements: MapElement[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onElementInteraction: () => void;
+  onChange: (elements: MapElement[]) => void;
+}) {
+  const map = useMap();
+  const [version, setVersion] = useState(0);
+  const container = map.getContainer();
+  const size = map.getSize();
+
+  useEffect(() => {
+    const refresh = () => setVersion((current) => current + 1);
+    map.on("move zoom resize", refresh);
+    return () => {
+      map.off("move zoom resize", refresh);
+    };
+  }, [map]);
+
+  const updateElement = (nextElement: MapElement) => {
+    onChange(elements.map((element) => (element.id === nextElement.id ? nextElement : element)));
+  };
+
+  return createPortal(
+    <svg
+      key={version}
+      className="pointer-events-none absolute inset-0"
+      style={{ zIndex: 660 }}
+      width={size.x}
+      height={size.y}
+    >
+      {elements.map((element) =>
+        element.type === "field" ? (
+          <FieldElementShape
+            key={element.id}
+            element={element}
+            map={map}
+            selected={element.id === selectedId}
+            onSelect={onSelect}
+            onElementInteraction={onElementInteraction}
+            onChange={updateElement}
+          />
+        ) : (
+          <PinElementShape
+            key={element.id}
+            element={element}
+            map={map}
+            selected={element.id === selectedId}
+            onSelect={onSelect}
+            onElementInteraction={onElementInteraction}
+            onChange={updateElement}
+          />
+        ),
+      )}
+    </svg>,
+    container,
+  );
+}
+
+function FieldElementShape({
+  element,
+  map,
+  selected,
+  onSelect,
+  onElementInteraction,
+  onChange,
+}: {
+  element: FieldMapElement;
+  map: ReturnType<typeof useMap>;
+  selected: boolean;
+  onSelect: (id: string | null) => void;
+  onElementInteraction: () => void;
+  onChange: (element: FieldMapElement) => void;
+}) {
+  const center = map.latLngToContainerPoint([element.center.lat, element.center.lon]);
+  const metersPerPixel = getMetersPerPixel(element.center.lat, map.getZoom());
+  const widthPx = element.widthM / metersPerPixel;
+  const heightPx = element.heightM / metersPerPixel;
+  const corners = getRotatedRectPoints(center.x, center.y, widthPx, heightPx, element.rotationDeg);
+  const topCenter = rotatePoint(center.x, center.y - heightPx / 2 - 34, center.x, center.y, element.rotationDeg);
+
+  const startDrag = (
+    event: React.PointerEvent,
+    mode: "move" | "resize" | "rotate",
+    cornerIndex = 0,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onElementInteraction();
+    onSelect(element.id);
+    const startClient = { x: event.clientX, y: event.clientY };
+    const startCenter = { x: center.x, y: center.y };
+    const startElement = element;
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      if (mode === "move") {
+        const nextCenter = map.containerPointToLatLng([
+          startCenter.x + moveEvent.clientX - startClient.x,
+          startCenter.y + moveEvent.clientY - startClient.y,
+        ]);
+        onChange({
+          ...startElement,
+          center: { lat: nextCenter.lat, lon: nextCenter.lng },
+        });
+        return;
+      }
+
+      const pointer = clientToContainerPoint(map, moveEvent.clientX, moveEvent.clientY);
+      const currentCenter = map.latLngToContainerPoint([
+        startElement.center.lat,
+        startElement.center.lon,
+      ]);
+
+      if (mode === "rotate") {
+        const angle = (Math.atan2(pointer.y - currentCenter.y, pointer.x - currentCenter.x) * 180) / Math.PI;
+        onChange({ ...startElement, rotationDeg: angle + 90 });
+        return;
+      }
+
+      const draggedLocal = rotatePoint(
+        pointer.x,
+        pointer.y,
+        currentCenter.x,
+        currentCenter.y,
+        -startElement.rotationDeg,
+      );
+      const oppositeCorner = getRectCornerLocal(
+        (cornerIndex + 2) % 4,
+        startElement.widthM / metersPerPixel,
+        startElement.heightM / metersPerPixel,
+      );
+      const draggedCorner = getRectCornerLocal(
+        cornerIndex,
+        startElement.widthM / metersPerPixel,
+        startElement.heightM / metersPerPixel,
+      );
+      const minSizePx = 8 / metersPerPixel;
+      const directionX = Math.sign(draggedCorner.x - oppositeCorner.x) || 1;
+      const directionY = Math.sign(draggedCorner.y - oppositeCorner.y) || 1;
+      const adjustedDraggedLocal = {
+        x:
+          oppositeCorner.x +
+          directionX * Math.max(minSizePx, Math.abs(draggedLocal.x - currentCenter.x - oppositeCorner.x)),
+        y:
+          oppositeCorner.y +
+          directionY * Math.max(minSizePx, Math.abs(draggedLocal.y - currentCenter.y - oppositeCorner.y)),
+      };
+      const nextCenterLocal = {
+        x: (oppositeCorner.x + adjustedDraggedLocal.x) / 2,
+        y: (oppositeCorner.y + adjustedDraggedLocal.y) / 2,
+      };
+      const nextCenterPoint = rotatePoint(
+        currentCenter.x + nextCenterLocal.x,
+        currentCenter.y + nextCenterLocal.y,
+        currentCenter.x,
+        currentCenter.y,
+        startElement.rotationDeg,
+      );
+      const nextCenterLatLng = map.containerPointToLatLng([nextCenterPoint.x, nextCenterPoint.y]);
+      const nextWidth = Math.max(8, Math.abs(adjustedDraggedLocal.x - oppositeCorner.x) * metersPerPixel);
+      const nextHeight = Math.max(8, Math.abs(adjustedDraggedLocal.y - oppositeCorner.y) * metersPerPixel);
+
+      onChange({
+        ...startElement,
+        center: { lat: nextCenterLatLng.lat, lon: nextCenterLatLng.lng },
+        widthM: nextWidth,
+        heightM: nextHeight,
+      });
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  return (
+    <g>
+      <polygon
+        points={corners.map((point) => `${point.x},${point.y}`).join(" ")}
+        className="pointer-events-auto cursor-move"
+        fill="rgba(255,255,255,0.08)"
+        stroke="rgba(255,255,255,0.95)"
+        strokeWidth={4.5}
+        strokeLinejoin="round"
+        onPointerDown={(event) => startDrag(event, "move")}
+      />
+      <polygon
+        points={corners.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill="none"
+        stroke={selected ? "rgba(5,10,20,0.75)" : "rgba(255,255,255,0.55)"}
+        strokeWidth={selected ? 1 : 2}
+        strokeDasharray={selected ? "6 4" : "none"}
+      />
+      {selected
+        ? corners.map((point, index) => (
+            <circle
+              key={`${element.id}-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r={6}
+              className="pointer-events-auto cursor-nwse-resize"
+              fill="#2563eb"
+              stroke="#ffffff"
+              strokeWidth={2.5}
+              onPointerDown={(event) => startDrag(event, "resize", index)}
+            />
+          ))
+        : null}
+      {selected ? (
+        <>
+          <line
+            x1={center.x}
+            y1={center.y}
+            x2={topCenter.x}
+            y2={topCenter.y}
+            stroke="rgba(245,158,11,0.95)"
+            strokeWidth={1.6}
+          />
+          <rect
+            x={topCenter.x - 6}
+            y={topCenter.y - 6}
+            width={10}
+            height={10}
+            className="pointer-events-auto cursor-grab"
+            fill="#f59e0b"
+            stroke="#ffffff"
+            strokeWidth={1.6}
+            transform={`rotate(${element.rotationDeg} ${topCenter.x} ${topCenter.y})`}
+            onPointerDown={(event) => startDrag(event, "rotate")}
+          />
+        </>
+      ) : null}
+    </g>
+  );
+}
+
+function PinElementShape({
+  element,
+  map,
+  selected,
+  onSelect,
+  onElementInteraction,
+  onChange,
+}: {
+  element: PinMapElement;
+  map: ReturnType<typeof useMap>;
+  selected: boolean;
+  onSelect: (id: string | null) => void;
+  onElementInteraction: () => void;
+  onChange: (element: PinMapElement) => void;
+}) {
+  const point = map.latLngToContainerPoint([element.position.lat, element.position.lon]);
+  const isBench = element.type === "bench";
+  const fill = isBench ? "#1d4ed8" : "#dc2626";
+
+  const startDrag = (event: React.PointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onElementInteraction();
+    onSelect(element.id);
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const pointer = clientToContainerPoint(map, moveEvent.clientX, moveEvent.clientY);
+      const next = map.containerPointToLatLng([pointer.x, pointer.y]);
+      onChange({ ...element, position: { lat: next.lat, lon: next.lng } });
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  return (
+    <g className="pointer-events-auto cursor-move" onPointerDown={startDrag}>
+      <circle cx={point.x} cy={point.y} r={10} fill="#ffffff" opacity={0.94} />
+      <circle cx={point.x} cy={point.y} r={6} fill={fill} opacity={0.98} />
+      {isBench ? (
+        <circle
+          cx={point.x}
+          cy={point.y}
+          r={selected ? 15 : 12}
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth={selected ? 2.5 : 1.75}
+          opacity={selected ? 0.9 : 0.55}
+        />
+      ) : (
+        <>
+          <circle
+            cx={point.x}
+            cy={point.y}
+            r={selected ? 15 : 12}
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth={selected ? 2.5 : 1.75}
+            opacity={selected ? 0.9 : 0.55}
+          />
+          <circle
+            cx={point.x}
+            cy={point.y}
+            r={selected ? 20 : 16}
+            fill="none"
+            stroke={fill}
+            strokeWidth={1.6}
+            opacity={selected ? 0.6 : 0.32}
+          />
+        </>
+      )}
+    </g>
+  );
+}
+
+function clientToContainerPoint(map: ReturnType<typeof useMap>, clientX: number, clientY: number) {
+  const rect = map.getContainer().getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+function getMetersPerPixel(lat: number, zoom: number) {
+  return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+}
+
+function getRectCornerLocal(cornerIndex: number, width: number, height: number) {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const corners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight },
+  ];
+
+  return corners[cornerIndex] ?? corners[0];
+}
+
+function getRotatedRectPoints(
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number,
+  rotationDeg: number,
+) {
+  return [
+    rotatePoint(centerX - width / 2, centerY - height / 2, centerX, centerY, rotationDeg),
+    rotatePoint(centerX + width / 2, centerY - height / 2, centerX, centerY, rotationDeg),
+    rotatePoint(centerX + width / 2, centerY + height / 2, centerX, centerY, rotationDeg),
+    rotatePoint(centerX - width / 2, centerY + height / 2, centerX, centerY, rotationDeg),
+  ];
+}
+
+function rotatePoint(x: number, y: number, centerX: number, centerY: number, rotationDeg: number) {
+  const angle = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = x - centerX;
+  const dy = y - centerY;
+
+  return {
+    x: centerX + dx * cos - dy * sin,
+    y: centerY + dx * sin + dy * cos,
+  };
+}
+
 function BasemapStyleControl({
   value,
   styles,
   hasApiKey,
   onChange,
 }: {
-  value: BasemapStyle;
-  styles: BasemapStyle[];
+  value: MapBasemapStyle;
+  styles: MapBasemapStyle[];
   hasApiKey: boolean;
-  onChange: (style: BasemapStyle) => void;
+  onChange: (style: MapBasemapStyle) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -337,7 +930,7 @@ function BasemapStyleControl({
       <div className="relative">
         <button
           type="button"
-          className="rounded-xl border border-border/55 bg-background/85 px-3 py-2 text-xs font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
+          className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
           onClick={() => setOpen((current) => !current)}
           aria-expanded={open}
           aria-label="Choose map style"
@@ -346,12 +939,12 @@ function BasemapStyleControl({
         </button>
 
         {open ? (
-          <div className="absolute bottom-full left-0 mb-2 w-36 overflow-hidden rounded-xl border border-border/55 bg-background/95 p-1 shadow-xl backdrop-blur">
+          <div className="absolute bottom-full left-0 mb-2 w-32 overflow-hidden rounded-lg border border-border/55 bg-background/95 p-1 shadow-xl backdrop-blur">
             {styles.map((style) => (
               <button
                 key={style}
                 type="button"
-                className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-medium transition ${
+                className={`block w-full rounded-md px-2.5 py-1.5 text-left text-[10px] font-medium transition ${
                   style === value
                     ? "bg-primary/18 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -365,7 +958,7 @@ function BasemapStyleControl({
               </button>
             ))}
             {!hasApiKey ? (
-              <div className="border-t border-border/60 px-3 py-2 text-[10px] leading-snug text-muted-foreground">
+              <div className="border-t border-border/60 px-2.5 py-1.5 text-[8px] leading-snug text-muted-foreground">
                 Set VITE_MAPTILER_API_KEY to load MapTiler tiles.
               </div>
             ) : null}
@@ -376,15 +969,181 @@ function BasemapStyleControl({
   );
 }
 
+function StreakStartPreview({
+  points,
+  segments,
+  lineColor,
+}: {
+  points: SessionPoint[];
+  segments: SessionSegment[];
+  lineColor: string;
+}) {
+  return (
+    <>
+      {segments.flatMap((segment) => {
+        const previewPoints = getSegmentStartPreviewPoints(points, segment);
+        if (previewPoints.length < 2) return [];
+
+        return previewPoints.slice(1).map((point, index) => {
+          const previous = previewPoints[index];
+          const elapsedS = getElapsedSeconds(previewPoints[0], point);
+          const fadeProgress = Math.max(
+            0,
+            (elapsedS - STREAK_START_PREVIEW_SOLID_SECONDS) /
+              Math.max(1, STREAK_START_PREVIEW_FADE_SECONDS - STREAK_START_PREVIEW_SOLID_SECONDS),
+          );
+          const progress = Math.min(1, fadeProgress);
+          const opacity = Math.max(0.72, 0.98 - progress * 0.2);
+          const weight = Math.max(2.1, 5.1 - Math.min(1, fadeProgress) * 2.2);
+          const branchColor = mixColor(lineColor, "#ffffff", progress * 0.82);
+
+          return (
+            <Polyline
+              key={`streak-start-${segment.segment_id}-${index}`}
+              positions={[
+                [previous.lat, previous.lon],
+                [point.lat, point.lon],
+              ]}
+              pathOptions={{
+                color: branchColor,
+                weight,
+                opacity,
+              }}
+            />
+          );
+        });
+      })}
+      {segments.map((segment) => {
+        const startPoint = points[segment.start_idx];
+        if (!startPoint) return null;
+
+        return (
+          <CircleMarker
+            key={`streak-start-marker-${segment.segment_id}`}
+            center={[startPoint.lat, startPoint.lon]}
+            radius={5}
+            pathOptions={{
+              color: "#ffffff",
+              weight: 2.5,
+              fillColor: lineColor,
+              fillOpacity: 1,
+              opacity: 1,
+            }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function getSegmentStartPreviewPoints(points: SessionPoint[], segment: SessionSegment) {
+  const startPoint = points[segment.start_idx];
+  if (!startPoint) return [];
+
+  const preview = [startPoint];
+  const startTime = new Date(startPoint.t).getTime();
+  let distanceM = 0;
+
+  for (
+    let index = segment.start_idx + 1;
+    index <= segment.end_idx && preview.length < STREAK_START_PREVIEW_MAX_POINTS;
+    index += 1
+  ) {
+    const point = points[index];
+    const previous = points[index - 1];
+    if (!point || !previous) break;
+
+    const elapsedS = (new Date(point.t).getTime() - startTime) / 1000;
+    distanceM += Math.hypot(point.x_m - previous.x_m, point.y_m - previous.y_m);
+
+    if (elapsedS > STREAK_START_PREVIEW_FADE_SECONDS || distanceM > STREAK_START_PREVIEW_MAX_METERS) {
+      break;
+    }
+
+    preview.push(point);
+  }
+
+  return preview;
+}
+
+function getElapsedSeconds(start: SessionPoint, point: SessionPoint) {
+  return (new Date(point.t).getTime() - new Date(start.t).getTime()) / 1000;
+}
+
+function mixColor(fromHex: string, toHex: string, amount: number) {
+  const from = parseHexColor(fromHex);
+  const to = parseHexColor(toHex);
+  if (!from || !to) return fromHex;
+
+  const mix = (fromValue: number, toValue: number) =>
+    Math.round(fromValue + (toValue - fromValue) * Math.max(0, Math.min(1, amount)));
+
+  return `rgb(${mix(from.r, to.r)}, ${mix(from.g, to.g)}, ${mix(from.b, to.b)})`;
+}
+
+function parseHexColor(hex: string) {
+  const normalized = hex.replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+
+  return {
+    r: Number.parseInt(normalized.slice(0, 2), 16),
+    g: Number.parseInt(normalized.slice(2, 4), 16),
+    b: Number.parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
 function getSessionTrailPoints(
   points: SessionPoint[],
+  segments: SessionSegment[],
   playheadIdx: number,
   traceMode: MapDisplayOptions["traceMode"],
 ) {
   if (traceMode === "none" || traceMode === "heatmap") return null;
   if (traceMode !== "streak") return points.slice(0, playheadIdx + 1);
 
-  return points.slice(Math.max(0, playheadIdx - STREAK_POINTS), playheadIdx + 1);
+  const tailLength = getDynamicStreakLength(segments, playheadIdx);
+  return points.slice(Math.max(0, playheadIdx - tailLength + 1), playheadIdx + 1);
+}
+
+function getFocusedTrailPoints(
+  points: SessionPoint[],
+  selectedSegment: SessionSegment,
+  playbackIdx: number,
+  traceMode: MapDisplayOptions["traceMode"],
+) {
+  const endIdx = selectedSegment.start_idx + playbackIdx;
+  if (traceMode === "none" || traceMode === "heatmap") return null;
+  if (traceMode !== "streak") return points.slice(selectedSegment.start_idx, endIdx + 1);
+
+  const tailLength = Math.min(
+    STREAK_POINTS,
+    Math.max(3, Math.round(3 + Math.min(1, playbackIdx / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3))),
+  );
+  return points.slice(Math.max(selectedSegment.start_idx, endIdx - tailLength + 1), endIdx + 1);
+}
+
+function getDynamicStreakLength(segments: SessionSegment[], playheadIdx: number) {
+  const containing = segments.find(
+    (segment) => playheadIdx >= segment.start_idx && playheadIdx <= segment.end_idx,
+  );
+  if (containing) {
+    const progressFromStart = playheadIdx - containing.start_idx;
+    return Math.min(
+      STREAK_POINTS,
+      Math.max(3, Math.round(3 + Math.min(1, progressFromStart / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3))),
+    );
+  }
+
+  const nextSegment = segments.find((segment) => segment.start_idx > playheadIdx);
+  if (!nextSegment) return STREAK_POINTS;
+
+  const pointsUntilStart = nextSegment.start_idx - playheadIdx;
+  if (pointsUntilStart > STREAK_LEAD_IN_POINTS) return STREAK_POINTS;
+
+  return Math.max(
+    3,
+    Math.round(3 + (pointsUntilStart / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3)),
+  );
 }
 
 function getRouteDisplayMode(traceMode: MapDisplayOptions["traceMode"]) {
@@ -876,18 +1635,18 @@ function HeatmapLegend({ displayOptions }: { displayOptions: MapDisplayOptions }
   const isSpeed = displayOptions.heatmapMode === "speed";
 
   return (
-    <div className="rounded-xl border border-border/55 bg-background/85 px-3 py-2 shadow-lg backdrop-blur">
+    <div className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 shadow-lg backdrop-blur">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">
           {isSpeed ? "Speed heat" : "Occupancy heat"}
         </span>
-        <span className="text-[10px] text-muted-foreground">Tint</span>
+        <span className="text-[8px] text-muted-foreground">Tint</span>
       </div>
       <div
-        className="mt-2 h-2 rounded-full border border-white/15"
+        className="mt-1.5 h-1.5 rounded-full border border-white/15"
         style={{ background: gradient }}
       />
-      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+      <div className="mt-1 flex items-center justify-between text-[8px] text-muted-foreground">
         <span>{isSpeed ? "Slow" : "Brief"}</span>
         <span>{isSpeed ? "Fast" : "Frequent"}</span>
       </div>
@@ -951,20 +1710,20 @@ function MapSpeedLegend({ displayOptions }: { displayOptions: MapDisplayOptions 
   const gradient = `linear-gradient(90deg, ${stops.join(", ")})`;
 
   return (
-    <div className="rounded-xl border border-border/55 bg-background/85 px-3 py-2 shadow-lg backdrop-blur">
+    <div className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 shadow-lg backdrop-blur">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">
           Speed color
         </span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[8px] text-muted-foreground">
           {displayOptions.gradientMode === "single" ? "Tint" : "Range"}
         </span>
       </div>
       <div
-        className="mt-2 h-2 rounded-full border border-white/15"
+        className="mt-1.5 h-1.5 rounded-full border border-white/15"
         style={{ background: gradient }}
       />
-      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+      <div className="mt-1 flex items-center justify-between text-[8px] text-muted-foreground">
         <span>Slow</span>
         <span>Fast</span>
       </div>

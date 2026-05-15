@@ -3,6 +3,7 @@ export type MapColorMode = "solid" | "speed";
 export type MapGradientMode = "multi" | "single";
 export type MapLineColor = "green" | "cyan" | "amber" | "rose";
 export type MapHeatmapMode = "occupancy" | "speed";
+export type MapBasemapStyle = "street" | "satellite" | "dark";
 
 export interface MapDisplayOptions {
   traceMode: MapTraceMode;

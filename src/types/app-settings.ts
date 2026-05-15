@@ -14,6 +14,7 @@ export interface AppSettings {
   lineColorMode: LineColorMode;
   lineColor: MapLineColor;
   showPaceGraph: boolean;
+  showHeartRateChart: boolean;
   reducedAnimation: boolean;
 }
 
@@ -27,5 +28,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   lineColorMode: "solid",
   lineColor: "green",
   showPaceGraph: true,
+  showHeartRateChart: true,
   reducedAnimation: false,
 };
