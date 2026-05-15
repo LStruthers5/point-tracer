@@ -107,6 +107,12 @@ export function SettingsMenu({ settings, onChange }: SettingsMenuProps) {
             onCheckedChange={(checked) => update("showPaceGraph", checked)}
           />
           <SettingSwitch
+            label="Show heart-rate chart"
+            description="Stack heart-rate readings below the speed graph when FIT heart-rate data is available."
+            checked={settings.showHeartRateChart}
+            onCheckedChange={(checked) => update("showHeartRateChart", checked)}
+          />
+          <SettingSwitch
             label="Reduced animation"
             description="Removes pulsing markers and shortens UI transitions for a calmer review experience."
             checked={settings.reducedAnimation}

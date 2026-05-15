@@ -55,7 +55,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
 
   const handleUpload = async () => {
     if (!file) {
-      setError("Please choose a .gpx file first.");
+      setError("Please choose a .gpx or .fit file first.");
       return;
     }
     setLoading(true);
@@ -102,7 +102,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
     <div className="relative z-30 flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/40 bg-card/30">
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mr-1">
         <FileUp className="w-3.5 h-3.5" />
-        Upload GPX
+        Upload GPX/FIT
       </div>
 
       <Select value={sport} onValueChange={setSport} disabled={loading}>
@@ -175,7 +175,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       <input
         ref={inputRef}
         type="file"
-        accept=".gpx,application/gpx+xml"
+        accept=".gpx,.fit,application/gpx+xml"
         className="hidden"
         onChange={(e) => {
           setFile(e.target.files?.[0] ?? null);
@@ -191,7 +191,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         disabled={loading}
         onClick={() => inputRef.current?.click()}
       >
-        {file ? truncate(file.name, 22) : "Choose .gpx"}
+        {file ? truncate(file.name, 22) : "Choose .gpx/.fit"}
       </Button>
 
       <Button

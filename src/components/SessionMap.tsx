@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SessionPoint, SessionSegment } from "@/types/session";
-import type { MapDisplayOptions } from "@/types/map-display";
+import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
+import type { MapElement } from "@/types/map-elements";
 import type { ThemeMode, UnitSystem } from "@/types/app-settings";
 
 interface SessionMapProps {
@@ -17,6 +18,10 @@ interface SessionMapProps {
   theme: ThemeMode;
   onlySegmentedActivity: boolean;
   reducedAnimation: boolean;
+  mapElements: MapElement[];
+  onMapElementsChange: (elements: MapElement[]) => void;
+  basemapStyle: MapBasemapStyle | null;
+  onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
 }
 
 type SessionMapClientComponent = React.ComponentType<SessionMapProps>;

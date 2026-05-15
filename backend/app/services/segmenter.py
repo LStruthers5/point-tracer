@@ -4,6 +4,7 @@ import io
 import math
 import statistics
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +159,93 @@ def parse_gpx_bytes(file_bytes: bytes) -> list[dict[str, Any]]:
     return raw_points
 
 
+def parse_fit_bytes(file_bytes: bytes) -> list[dict[str, Any]]:
+    """
+    Parse FIT bytes into raw trackpoints.
+    First pass support requires timed GPS records; heart rate is included when
+    present on record messages. FIT files with HR but no usable GPS are rejected
+    clearly because the current review UI is map-first.
+    """
+    try:
+        from garmin_fit_sdk import Decoder, Stream
+    except ImportError as exc:
+        raise ValueError(
+            "FIT upload requires the garmin-fit-sdk package. "
+            "Install backend requirements, then try again."
+        ) from exc
+
+    stream = Stream.from_bytes_io(io.BytesIO(file_bytes))
+    decoder = Decoder(stream)
+    messages, errors = decoder.read()
+    if errors:
+        raise ValueError(f"FIT file could not be decoded: {errors[0]}")
+
+    raw_points: list[dict[str, Any]] = []
+    records = messages.get("record_mesgs", [])
+
+    for record in records:
+        timestamp = record.get("timestamp")
+        lat = normalize_fit_coordinate(record.get("position_lat"))
+        lon = normalize_fit_coordinate(record.get("position_long"))
+
+        if timestamp is None or lat is None or lon is None:
+            continue
+
+        raw_points.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "ele": fit_number(record.get("enhanced_altitude", record.get("altitude"))),
+                "time": normalize_datetime(timestamp),
+                "heart_rate_bpm": fit_number(record.get("heart_rate")),
+            }
+        )
+
+    if len(raw_points) < 2:
+        hr_records = sum(1 for record in records if record.get("heart_rate") is not None)
+        if hr_records:
+            raise ValueError(
+                "FIT file contains heart-rate records but not enough timed GPS "
+                "trackpoints for map review yet."
+            )
+        raise ValueError("FIT file does not contain enough timed GPS trackpoints.")
+
+    raw_points.sort(key=lambda p: p["time"])
+    return raw_points
+
+
+def normalize_fit_coordinate(value: Any) -> float | None:
+    if value is None:
+        return None
+
+    coordinate = fit_number(value)
+    if coordinate is None:
+        return None
+
+    # Some decoders return raw semicircles; garmin-fit-sdk usually returns degrees.
+    if abs(coordinate) > 180:
+        return coordinate * (180.0 / 2**31)
+
+    return coordinate
+
+
+def normalize_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise ValueError("FIT record timestamp is not a datetime.")
+
+
+def fit_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def enrich_points(
     raw_points: list[dict[str, Any]],
     reset_area: ResetArea | None = None,
@@ -227,6 +315,75 @@ def enrich_points(
         enriched[i]["speed_smooth_mps"] = 0.0 if value is None else value
 
     return enriched
+
+
+def point_heart_rate(point: dict[str, Any]) -> float | None:
+    value = point.get("heart_rate_bpm")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def heart_rates_in_points(points: list[dict[str, Any]]) -> list[float]:
+    return [hr for point in points if (hr := point_heart_rate(point)) is not None]
+
+
+def heart_rate_near_end(points: list[dict[str, Any]]) -> float | None:
+    for point in reversed(points):
+        hr = point_heart_rate(point)
+        if hr is not None:
+            return hr
+    return None
+
+
+def heart_rate_near_start(points: list[dict[str, Any]]) -> float | None:
+    for point in points:
+        hr = point_heart_rate(point)
+        if hr is not None:
+            return hr
+    return None
+
+
+def build_heart_rate_stats(points: list[dict[str, Any]]) -> dict[str, Any] | None:
+    heart_rates = heart_rates_in_points(points)
+    if not heart_rates:
+        return None
+
+    return {
+        "avg_bpm": round(sum(heart_rates) / len(heart_rates), 1),
+        "min_bpm": round(min(heart_rates), 1),
+        "max_bpm": round(max(heart_rates), 1),
+        "start_bpm": round(heart_rates[0], 1),
+        "end_bpm": round(heart_rates[-1], 1),
+        "sample_count": len(heart_rates),
+    }
+
+
+def build_recovery_summary(segments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    recoveries = [
+        segment["recovery_stats"]
+        for segment in segments
+        if segment.get("recovery_stats", {}).get("hr_drop_bpm") is not None
+        and segment.get("recovery_stats", {}).get("recovery_rate_bpm_per_min") is not None
+    ]
+    if not recoveries:
+        return None
+
+    avg_drop = sum(r["hr_drop_bpm"] for r in recoveries) / len(recoveries)
+    avg_rate = sum(r["recovery_rate_bpm_per_min"] for r in recoveries) / len(recoveries)
+    fastest = max(recoveries, key=lambda recovery: recovery["recovery_rate_bpm_per_min"])
+    slowest = min(recoveries, key=lambda recovery: recovery["recovery_rate_bpm_per_min"])
+
+    return {
+        "recovery_count": len(recoveries),
+        "avg_hr_drop_bpm": round(avg_drop, 1),
+        "avg_recovery_rate_bpm_per_min": round(avg_rate, 1),
+        "fastest_recovery_segment_id": fastest["segment_id"],
+        "slowest_recovery_segment_id": slowest["segment_id"],
+    }
 
 
 def build_segmenter_signals(
@@ -753,6 +910,10 @@ def build_session_data(
             "speed_smooth_mps": round(p["speed_smooth_mps"], 3),
         }
 
+        heart_rate_bpm = point_heart_rate(p)
+        if heart_rate_bpm is not None:
+            session_point["heart_rate_bpm"] = round(heart_rate_bpm, 1)
+
         if "reset_area_distance_m" in p:
             session_point["reset_area_distance_m"] = round(
                 p["reset_area_distance_m"],
@@ -802,7 +963,53 @@ def build_session_data(
                 "end_distance_m": round(reset_distances[-1], 1),
             }
 
+        heart_rate_stats = build_heart_rate_stats(seg_points_raw)
+        if heart_rate_stats is not None:
+            session_segment["heart_rate_stats"] = heart_rate_stats
+
         session_segments.append(session_segment)
+
+    for index, session_segment in enumerate(session_segments):
+        if index >= len(session_segments) - 1:
+            continue
+
+        current_start, current_end = segments[index]
+        next_start, _ = segments[index + 1]
+        current_points = points[current_start : current_end + 1]
+        next_points = points[next_start : segments[index + 1][1] + 1]
+        hr_end_bpm = heart_rate_near_end(current_points)
+        hr_next_start_bpm = heart_rate_near_start(next_points)
+        recovery_duration_s = (
+            points[next_start]["time"] - points[current_end]["time"]
+        ).total_seconds()
+
+        if hr_end_bpm is None and hr_next_start_bpm is None:
+            continue
+
+        hr_drop_bpm = (
+            hr_end_bpm - hr_next_start_bpm
+            if hr_end_bpm is not None and hr_next_start_bpm is not None
+            else None
+        )
+        recovery_rate = (
+            hr_drop_bpm / (recovery_duration_s / 60.0)
+            if hr_drop_bpm is not None and recovery_duration_s > 0
+            else None
+        )
+
+        session_segment["recovery_stats"] = {
+            "segment_id": session_segment["segment_id"],
+            "next_segment_id": session_segments[index + 1]["segment_id"],
+            "hr_end_bpm": round(hr_end_bpm, 1) if hr_end_bpm is not None else None,
+            "hr_next_start_bpm": (
+                round(hr_next_start_bpm, 1) if hr_next_start_bpm is not None else None
+            ),
+            "hr_drop_bpm": round(hr_drop_bpm, 1) if hr_drop_bpm is not None else None,
+            "recovery_duration_s": round(recovery_duration_s, 1),
+            "recovery_rate_bpm_per_min": (
+                round(recovery_rate, 2) if recovery_rate is not None else None
+            ),
+        }
 
     session_data = {
         "activity_name": Path(source_file).stem,
@@ -815,6 +1022,7 @@ def build_session_data(
             "trackpoint_count": len(points),
             "distance_m": round(total_dist_m, 1),
             "bbox": compute_bbox(session_points),
+            "heart_rate_stats": build_heart_rate_stats(points),
         },
         "segmentation_method": {
             "type": plan.method_type,
@@ -824,6 +1032,10 @@ def build_session_data(
         "segments": session_segments,
         "points": session_points,
     }
+
+    recovery_summary = build_recovery_summary(session_segments)
+    if recovery_summary is not None:
+        session_data["summary"]["recovery_summary"] = recovery_summary
 
     if debug is not None:
         session_data["segmentation_debug"] = debug
@@ -846,7 +1058,37 @@ def segment_gpx_bytes(
     Main entry point for the backend upload flow.
     Accepts GPX bytes and returns a SessionData-shaped dictionary.
     """
-    raw_points = parse_gpx_bytes(file_bytes)
+    return segment_activity_bytes(
+        file_bytes=file_bytes,
+        filename=filename,
+        sport=sport,
+        reset_area=reset_area,
+        debug=debug,
+        segmentation_mode=segmentation_mode,
+        split_distance_m=split_distance_m,
+        split_duration_s=split_duration_s,
+    )
+
+
+def segment_activity_bytes(
+    file_bytes: bytes,
+    filename: str,
+    sport: str,
+    *,
+    reset_area: ResetArea | None = None,
+    debug: bool = False,
+    segmentation_mode: str = "auto",
+    split_distance_m: float | None = None,
+    split_duration_s: float | None = None,
+) -> dict[str, Any]:
+    extension = Path(filename).suffix.lower()
+    if extension == ".fit":
+        raw_points = parse_fit_bytes(file_bytes)
+    elif extension == ".gpx":
+        raw_points = parse_gpx_bytes(file_bytes)
+    else:
+        raise ValueError("Only .gpx and .fit uploads are supported.")
+
     options = SegmenterOptions(reset_area=reset_area, debug=debug)
     signals = build_segmenter_signals(raw_points, options)
     segmentation_plan = build_segmentation_plan(

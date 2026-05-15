@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.segmenter import ResetArea, segment_gpx_bytes
+from app.services.segmenter import ResetArea, segment_activity_bytes
 
 
 app = FastAPI(
@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 
-ALLOWED_EXTENSIONS = {".gpx"}
+ALLOWED_EXTENSIONS = {".gpx", ".fit"}
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
@@ -58,7 +58,7 @@ async def upload_gpx(
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{extension}'. Only .gpx is supported right now.",
+            detail=f"Unsupported file type '{extension}'. Only .gpx and .fit are supported right now.",
         )
 
     normalized_sport = sport.strip().lower()
@@ -112,7 +112,7 @@ async def upload_gpx(
         )
 
     try:
-        session_data = segment_gpx_bytes(
+        session_data = segment_activity_bytes(
             file_bytes=file_bytes,
             filename=file.filename,
             sport=normalized_sport,
@@ -129,5 +129,5 @@ async def upload_gpx(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail="Unexpected error while processing GPX file.",
+            detail="Unexpected error while processing activity file.",
         ) from exc
