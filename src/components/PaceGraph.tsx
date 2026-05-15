@@ -48,7 +48,10 @@ export function PaceGraph({
 }: PaceGraphProps) {
   const [hoverX, setHoverX] = useState<number | null>(null);
   const range = useMemo(() => points.slice(startIdx, endIdx + 1), [endIdx, points, startIdx]);
-  const graph = useMemo(() => buildGraph(range, startIdx, units), [range, startIdx, units]);
+  const graph = useMemo(
+    () => buildGraph(range, startIdx, units, segmentHighlights),
+    [range, segmentHighlights, startIdx, units],
+  );
   const hasHeartRate = showHeartRate && graph.hrLinePoints != null;
   const viewBoxHeight = hasHeartRate ? STACKED_VIEWBOX_HEIGHT : SPEED_VIEWBOX_HEIGHT;
   const selectedStart = selectedStartIdx != null ? points[selectedStartIdx] : null;
@@ -77,7 +80,7 @@ export function PaceGraph({
           Pace graph
         </span>
         <span className="text-[10px] text-muted-foreground">
-          {hasHeartRate ? "Speed + heart rate" : "Speed higher"}
+          {hasHeartRate ? "Speed + HR + energy" : "Speed higher"}
         </span>
       </div>
 
@@ -91,6 +94,11 @@ export function PaceGraph({
         {hasHeartRate ? (
           <div className="pointer-events-none absolute left-0 top-[73%] -translate-y-1/2 -rotate-90 text-[10px] font-medium uppercase tracking-wider text-red-400/85">
             HR bpm
+          </div>
+        ) : null}
+        {hasHeartRate ? (
+          <div className="pointer-events-none absolute right-0 top-[73%] -translate-y-1/2 rotate-90 text-[10px] font-medium uppercase tracking-wider text-amber-300/90">
+            Energy %
           </div>
         ) : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -299,6 +307,15 @@ export function PaceGraph({
                 className="text-red-400/35"
               />
               <line
+                x1={HR_PLOT.right}
+                y1={HR_PLOT.top}
+                x2={HR_PLOT.right}
+                y2={HR_PLOT.bottom}
+                stroke="currentColor"
+                strokeWidth="0.8"
+                className="text-amber-300/45"
+              />
+              <line
                 x1={HR_PLOT.left}
                 y1={HR_PLOT.top}
                 x2={HR_PLOT.left}
@@ -318,6 +335,27 @@ export function PaceGraph({
                   {tick.label}
                 </text>
               ))}
+              {graph.readinessTicks.map((tick) => (
+                <g key={`readiness-label-${tick.value}`}>
+                  <line
+                    x1={HR_PLOT.right}
+                    y1={tick.y}
+                    x2={HR_PLOT.right + 4}
+                    y2={tick.y}
+                    stroke="currentColor"
+                    strokeWidth="0.55"
+                    className="text-amber-300/60"
+                  />
+                  <text
+                    x={HR_PLOT.right + 8}
+                    y={tick.y + 3.5}
+                    textAnchor="start"
+                    className="fill-amber-300/85 text-[9px] font-medium"
+                  >
+                    {tick.label}
+                  </text>
+                </g>
+              ))}
               <polyline
                 points={graph.hrLinePoints ?? ""}
                 fill="none"
@@ -327,6 +365,17 @@ export function PaceGraph({
                 strokeLinejoin="round"
                 className="text-red-400"
               />
+              {graph.readinessLinePoints ? (
+                <polyline
+                  points={graph.readinessLinePoints}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-amber-300/90"
+                />
+              ) : null}
               {hovered?.hrY != null ? (
                 <circle
                   cx={hovered.x}
@@ -336,6 +385,17 @@ export function PaceGraph({
                   stroke="white"
                   strokeWidth="1.3"
                   className="text-red-400"
+                />
+              ) : null}
+              {hovered?.readinessY != null ? (
+                <circle
+                  cx={hovered.x}
+                  cy={hovered.readinessY}
+                  r="3"
+                  fill="currentColor"
+                  stroke="white"
+                  strokeWidth="1"
+                  className="text-amber-300/90"
                 />
               ) : null}
             </>
@@ -354,7 +414,12 @@ export function PaceGraph({
   );
 }
 
-function buildGraph(range: SessionPoint[], startIdx: number, units: UnitSystem) {
+function buildGraph(
+  range: SessionPoint[],
+  startIdx: number,
+  units: UnitSystem,
+  segmentHighlights: SessionSegment[],
+) {
   const first = range[0];
   const last = range[range.length - 1];
   const startMs = first ? new Date(first.t).getTime() : 0;
@@ -389,6 +454,11 @@ function buildGraph(range: SessionPoint[], startIdx: number, units: UnitSystem) 
     x: SPEED_PLOT.left + (value / (durationMs / 1000)) * (SPEED_PLOT.right - SPEED_PLOT.left),
   }));
   const cumulativeMeters = buildCumulativeMeters(range);
+  const readinessSeries = buildReadinessSeries(range, startIdx, segmentHighlights, {
+    maxSpeedMps: Math.max(0.1, ...speeds),
+    hrMin: hrYMin,
+    hrMax: hrYMax,
+  });
   const toX = (point: SessionPoint) =>
     SPEED_PLOT.left +
     ((new Date(point.t).getTime() - startMs) / durationMs) *
@@ -405,19 +475,32 @@ function buildGraph(range: SessionPoint[], startIdx: number, units: UnitSystem) 
     x: toX(point),
     y: toY(point),
     hrY: toHrY(point),
+    readiness: readinessSeries[index] ?? null,
+    readinessY:
+      readinessSeries[index] == null ? null : toYForReadiness(readinessSeries[index] ?? 0),
     distanceM: cumulativeMeters[index] ?? 0,
   }));
   const hrLinePoints = plotted
     .filter((plot) => plot.hrY != null)
     .map(({ x, hrY }) => `${x.toFixed(2)},${(hrY ?? 0).toFixed(2)}`)
     .join(" ");
+  const readinessLinePoints = plotted
+    .filter((plot) => plot.readinessY != null)
+    .map(({ x, readinessY }) => `${x.toFixed(2)},${(readinessY ?? 0).toFixed(2)}`)
+    .join(" ");
 
   return {
     linePoints: plotted.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "),
     hrLinePoints: hrLinePoints.length > 0 ? hrLinePoints : null,
+    readinessLinePoints: readinessLinePoints.length > 0 ? readinessLinePoints : null,
     xTicks,
     yTicks,
     hrTicks,
+    readinessTicks: [0, 50, 100].map((value) => ({
+      value,
+      label: String(value),
+      y: toYForReadiness(value),
+    })),
     toX,
     nearestPoint: (x: number) => {
       if (plotted.length === 0) return null;
@@ -438,6 +521,122 @@ function toYForSpeed(speedMps: number, maxSpeedMps: number) {
 function toYForHeartRate(bpm: number, minBpm: number, maxBpm: number) {
   const ratio = (bpm - minBpm) / Math.max(1, maxBpm - minBpm);
   return HR_PLOT.bottom - ratio * (HR_PLOT.bottom - HR_PLOT.top);
+}
+
+function toYForReadiness(value: number) {
+  return HR_PLOT.bottom - (Math.max(0, Math.min(100, value)) / 100) * (HR_PLOT.bottom - HR_PLOT.top);
+}
+
+function buildReadinessSeries(
+  range: SessionPoint[],
+  startIdx: number,
+  segmentHighlights: SessionSegment[],
+  scale: { maxSpeedMps: number; hrMin: number; hrMax: number },
+) {
+  if (range.length === 0) return [];
+
+  const activeSegments = new Map<number, SessionSegment>();
+  segmentHighlights.forEach((segment) => {
+    const start = Math.max(startIdx, segment.start_idx);
+    const end = Math.min(startIdx + range.length - 1, segment.end_idx);
+    for (let index = start; index <= end; index += 1) activeSegments.set(index, segment);
+  });
+  const performanceScores = buildSegmentPerformanceScores(range, startIdx, segmentHighlights);
+
+  let readiness = 100;
+  let smoothed = readiness;
+
+  return range.map((point, index) => {
+    const previous = range[index - 1];
+    const absoluteIdx = startIdx + index;
+    const dtS = previous
+      ? Math.max(1, Math.min(8, (new Date(point.t).getTime() - new Date(previous.t).getTime()) / 1000))
+      : 1;
+    const speedNorm = Math.max(0, Math.min(1, getPointSpeed(point) / Math.max(0.1, scale.maxSpeedMps)));
+    const hrNorm =
+      point.heart_rate_bpm == null
+        ? speedNorm
+        : Math.max(0, Math.min(1, (point.heart_rate_bpm - scale.hrMin) / Math.max(1, scale.hrMax - scale.hrMin)));
+    const previousHr = previous?.heart_rate_bpm ?? null;
+    const hrDropRate =
+      previousHr != null && point.heart_rate_bpm != null
+        ? Math.max(0, (previousHr - point.heart_rate_bpm) / dtS)
+        : 0;
+    const activeSegment = activeSegments.get(absoluteIdx);
+    const inSegment = segmentHighlights.length === 0 || activeSegment != null;
+    const effort = speedNorm * 0.55 + hrNorm * 0.45;
+
+    if (inSegment) {
+      const performanceScore = activeSegment
+        ? performanceScores.get(activeSegment.segment_id) ?? null
+        : null;
+      const softFloor = readinessFloorForPerformance(performanceScore);
+      const preservationMultiplier =
+        performanceScore == null ? 1 : Math.max(0.78, Math.min(1.28, 1 + (88 - performanceScore) / 170));
+      const depletion = (readiness - softFloor) * effort * dtS * 0.0065 * preservationMultiplier;
+      readiness -= depletion;
+    } else {
+      const lowMovement = Math.max(0, 1 - speedNorm);
+      const hrRecovery = Math.min(1, hrDropRate / 0.35);
+      const recoveryQuality = lowMovement * 0.55 + hrRecovery * 0.45;
+      const recovery = (100 - readiness) * recoveryQuality * dtS * 0.0045;
+      const movementCost = speedNorm > 0.35 ? speedNorm * dtS * 0.045 : 0;
+      readiness += recovery - movementCost;
+    }
+
+    readiness = Math.max(10, Math.min(100, readiness));
+    smoothed = smoothed * 0.86 + readiness * 0.14;
+    return Math.round(smoothed);
+  });
+}
+
+function buildSegmentPerformanceScores(
+  range: SessionPoint[],
+  startIdx: number,
+  segments: SessionSegment[],
+) {
+  const scores = new Map<number, number>();
+  const visibleSegments = segments
+    .filter((segment) => segment.end_idx >= startIdx && segment.start_idx <= startIdx + range.length - 1)
+    .sort((a, b) => a.start_idx - b.start_idx);
+  if (visibleSegments.length === 0) return scores;
+
+  const baselineCount = Math.max(1, Math.min(4, Math.ceil(visibleSegments.length * 0.25)));
+  const baselineSegments = visibleSegments.slice(0, baselineCount);
+  const baselineMeanSpeed = median(
+    baselineSegments
+      .map((segment) => segment.mean_speed_mps)
+      .filter((value) => Number.isFinite(value) && value > 0),
+  );
+  const baselineTopSpeed = median(
+    baselineSegments
+      .map((segment) => maxSegmentSpeed(range, startIdx, segment))
+      .filter((value) => Number.isFinite(value) && value > 0),
+  );
+  if (!baselineMeanSpeed || !baselineTopSpeed) return scores;
+
+  visibleSegments.forEach((segment) => {
+    const avgRatio = segment.mean_speed_mps / baselineMeanSpeed;
+    const topRatio = maxSegmentSpeed(range, startIdx, segment) / baselineTopSpeed;
+    scores.set(segment.segment_id, Math.round(Math.max(45, Math.min(125, (avgRatio * 0.6 + topRatio * 0.4) * 100))));
+  });
+
+  return scores;
+}
+
+function readinessFloorForPerformance(performanceScore: number | null) {
+  if (performanceScore == null) return 24;
+  if (performanceScore >= 100) return 42;
+  if (performanceScore >= 90) return 36;
+  if (performanceScore >= 75) return 28;
+  return 18;
+}
+
+function maxSegmentSpeed(range: SessionPoint[], startIdx: number, segment: SessionSegment) {
+  const localStart = Math.max(0, segment.start_idx - startIdx);
+  const localEnd = Math.min(range.length - 1, segment.end_idx - startIdx);
+  if (localEnd < localStart) return 0;
+  return Math.max(...range.slice(localStart, localEnd + 1).map(getPointSpeed));
 }
 
 function getRangeHighlight({
@@ -480,6 +679,7 @@ function GraphTooltip({
     point: SessionPoint;
     x: number;
     hrY: number | null;
+    readiness: number | null;
     distanceM: number;
     absoluteIdx: number;
   };
@@ -517,6 +717,14 @@ function GraphTooltip({
             Heart rate{" "}
             <span className="font-mono text-red-400">
               {Math.round(hovered.point.heart_rate_bpm)} bpm
+            </span>
+          </div>
+        ) : null}
+        {hovered.readiness != null ? (
+          <div>
+            Energy{" "}
+            <span className="font-mono text-amber-300">
+              {Math.round(hovered.readiness)}%
             </span>
           </div>
         ) : null}
@@ -595,6 +803,14 @@ function buildHeartRateTicks(minBpm: number, maxBpm: number) {
   }
 
   return ticks.slice(0, 4);
+}
+
+function median(values: number[]) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function niceCeil(value: number) {
