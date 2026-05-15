@@ -16,6 +16,15 @@ import { SegmentAnalyticsPanel } from "@/components/SegmentAnalyticsPanel";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
 import { ExportVideoDialog } from "@/components/ExportVideoDialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Slider } from "@/components/ui/slider";
@@ -24,7 +33,7 @@ import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
 import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
 import type { SessionData, SessionPoint, SessionSegment } from "@/types/session";
-import { formatDuration } from "@/lib/format";
+import { formatDistance, formatDuration } from "@/lib/format";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
 const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
@@ -64,6 +73,7 @@ function Index() {
   const [graphPreviewIdx, setGraphPreviewIdx] = useState<number | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
   const [exportVideoOpen, setExportVideoOpen] = useState(false);
+  const [activityEditOpen, setActivityEditOpen] = useState(false);
   const [selectedBasemapStyle, setSelectedBasemapStyle] = useState<MapBasemapStyle | null>(null);
   const [manualSegmentIds, setManualSegmentIds] = useState<Set<number>>(() => new Set());
   const [mapElements, setMapElements] = useState<MapElement[]>([]);
@@ -378,6 +388,31 @@ function Index() {
     sessionPlayback.seek(endIdx);
   };
 
+  const applyActivityEdit = (activityName: string, cropStartIdx: number, cropEndIdx: number) => {
+    if (!data) return;
+
+    const nextData = cropSessionData({
+      data,
+      activityName,
+      cropStartIdx,
+      cropEndIdx,
+    });
+
+    setData(nextData);
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setShowFullRoute(true);
+    setManualSegmentIds((current) => {
+      const remainingIds = new Set(nextData.segments.map((segment) => segment.segment_id));
+      return new Set([...current].filter((id) => remainingIds.has(id)));
+    });
+    sessionPlayback.seek(0);
+    sessionPlayback.pause();
+    playback.seek(0);
+    playback.pause();
+  };
+
   const goToSegment = (offset: number) => {
     if (selectedIndex < 0) return;
     const next = segments[selectedIndex + offset];
@@ -529,6 +564,14 @@ function Index() {
         exportMode={!showFullRoute && selectedSegment ? "segment" : "session"}
       />
 
+      <ActivityEditDialog
+        open={activityEditOpen}
+        onOpenChange={setActivityEditOpen}
+        data={data}
+        units={settings.units}
+        onApply={applyActivityEdit}
+      />
+
       <UploadPanel onUploaded={handleUploaded} units={settings.units} />
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
@@ -540,6 +583,7 @@ function Index() {
               summary={data.summary}
               segmentCount={data.segments.length}
               units={settings.units}
+              onEdit={() => setActivityEditOpen(true)}
             />
             <SegmentList
               segments={data.segments}
@@ -776,6 +820,191 @@ function Index() {
   );
 }
 
+function ActivityEditDialog({
+  open,
+  onOpenChange,
+  data,
+  units,
+  onApply,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  data: SessionData;
+  units: AppSettings["units"];
+  onApply: (activityName: string, cropStartIdx: number, cropEndIdx: number) => void;
+}) {
+  const [draftName, setDraftName] = useState(data.activity_name);
+  const [cropStartIdx, setCropStartIdx] = useState(0);
+  const [cropEndIdx, setCropEndIdx] = useState(Math.max(0, data.points.length - 1));
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftName(data.activity_name);
+    setCropStartIdx(0);
+    setCropEndIdx(Math.max(0, data.points.length - 1));
+  }, [data.activity_name, data.points.length, open]);
+
+  const maxIdx = Math.max(0, data.points.length - 1);
+  const startIdx = clampNumber(cropStartIdx, 0, Math.max(0, cropEndIdx - 1));
+  const endIdx = clampNumber(cropEndIdx, Math.min(maxIdx, cropStartIdx + 1), maxIdx);
+  const cropPoints = data.points.slice(startIdx, endIdx + 1);
+  const cropDurationS = getPointDurationSeconds(cropPoints);
+  const cropDistanceM = calculateDistanceMeters(cropPoints);
+  const isFullRange = startIdx === 0 && endIdx === maxIdx;
+  const canApply = data.points.length > 1 && endIdx > startIdx;
+
+  const setStart = (idx: number) => setCropStartIdx(clampNumber(idx, 0, Math.max(0, endIdx - 1)));
+  const setEnd = (idx: number) => setCropEndIdx(clampNumber(idx, Math.min(maxIdx, startIdx + 1), maxIdx));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="z-[2400] max-w-4xl border-border/70 bg-card">
+        <DialogHeader>
+          <DialogTitle>Edit activity</DialogTitle>
+          <DialogDescription>
+            Rename the full activity or crop setup and tail data from the session timeline.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Activity name
+            </span>
+            <Input
+              value={draftName}
+              onChange={(event) => setDraftName(event.target.value)}
+              placeholder="Activity name"
+              className="h-9 rounded-xl border-border/70 bg-secondary/35 text-sm"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{formatPointTime(data.points[startIdx])}</span>
+            <span className="text-border">to</span>
+            <span>{formatPointTime(data.points[endIdx])}</span>
+            <span className="text-border">•</span>
+            <span>{formatDuration(cropDurationS)}</span>
+            <span className="text-border">•</span>
+            <span>{formatDistance(cropDistanceM, units)}</span>
+            <span className="text-border">•</span>
+            <span>{cropPoints.length.toLocaleString()} points</span>
+          </div>
+
+          {data.points.length > 1 ? (
+            <PaceGraph
+              points={data.points}
+              startIdx={0}
+              endIdx={maxIdx}
+              selectedStartIdx={startIdx}
+              selectedEndIdx={endIdx}
+              playheadIdx={startIdx}
+              units={units}
+              showHeartRate={false}
+              onSelectPoint={(idx) => {
+                const distanceToStart = Math.abs(idx - startIdx);
+                const distanceToEnd = Math.abs(idx - endIdx);
+                if (distanceToStart <= distanceToEnd) setStart(idx);
+                else setEnd(idx);
+              }}
+            />
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ActivityCropControl
+              label="Trim start"
+              value={startIdx}
+              min={0}
+              max={Math.max(0, endIdx - 1)}
+              point={data.points[startIdx]}
+              onChange={setStart}
+            />
+            <ActivityCropControl
+              label="Trim end"
+              value={endIdx}
+              min={Math.min(maxIdx, startIdx + 1)}
+              max={maxIdx}
+              point={data.points[endIdx]}
+              onChange={setEnd}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-secondary/25 p-3">
+            <div className="text-xs text-muted-foreground">
+              Cropping applies to the current reviewed session, recalculates activity stats, and keeps
+              only segments that overlap the new activity window.
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isFullRange}
+              onClick={() => {
+                setCropStartIdx(0);
+                setCropEndIdx(maxIdx);
+              }}
+            >
+              Reset crop
+            </Button>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!canApply}
+            onClick={() => {
+              onApply(draftName, startIdx, endIdx);
+              onOpenChange(false);
+            }}
+          >
+            Apply activity edit
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ActivityCropControl({
+  label,
+  value,
+  min,
+  max,
+  point,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  point?: SessionPoint;
+  onChange: (idx: number) => void;
+}) {
+  return (
+    <label className="space-y-2 rounded-xl bg-secondary/35 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {formatPointTime(point)} · #{value}
+        </span>
+      </div>
+      <Slider
+        value={[clampNumber(value, min, max)]}
+        min={min}
+        max={max}
+        step={1}
+        onValueChange={(next) => onChange(next[0])}
+      />
+    </label>
+  );
+}
+
 function ExpandedMapPlaybackControls({
   label,
   playing,
@@ -1005,6 +1234,56 @@ function ActivityLibraryMenu({
   );
 }
 
+function cropSessionData({
+  data,
+  activityName,
+  cropStartIdx,
+  cropEndIdx,
+}: {
+  data: SessionData;
+  activityName: string;
+  cropStartIdx: number;
+  cropEndIdx: number;
+}): SessionData {
+  const maxIdx = Math.max(0, data.points.length - 1);
+  const startIdx = clampNumber(Math.min(cropStartIdx, cropEndIdx), 0, maxIdx);
+  const endIdx = clampNumber(Math.max(cropStartIdx, cropEndIdx), startIdx, maxIdx);
+  const croppedPoints = data.points.slice(startIdx, endIdx + 1);
+
+  if (croppedPoints.length < 2) {
+    return {
+      ...data,
+      activity_name: activityName.trim() || data.activity_name,
+    };
+  }
+
+  const clippedSegments = data.segments
+    .map((segment) => {
+      const clippedStart = Math.max(segment.start_idx, startIdx);
+      const clippedEnd = Math.min(segment.end_idx, endIdx);
+      if (clippedEnd <= clippedStart) return null;
+
+      return buildSegmentFromRange({
+        points: croppedPoints,
+        source: segment,
+        startIdx: clippedStart - startIdx,
+        endIdx: clippedEnd - startIdx,
+        id: segment.segment_id,
+        label: segment.label,
+      });
+    })
+    .filter((segment): segment is SessionSegment => segment !== null)
+    .sort((a, b) => a.start_idx - b.start_idx);
+
+  return {
+    ...data,
+    activity_name: activityName.trim() || data.activity_name,
+    points: croppedPoints,
+    segments: clippedSegments,
+    summary: buildSessionSummaryFromPoints(croppedPoints, data.summary),
+  };
+}
+
 function createFallbackSegment(points: SessionPoint[]): SessionSegment {
   return buildSegmentFromRange({
     points,
@@ -1085,6 +1364,71 @@ function calculateDistanceMeters(points: SessionPoint[]): number {
     const dy = point.y_m - previous.y_m;
     return total + Math.sqrt(dx * dx + dy * dy);
   }, 0);
+}
+
+function buildSessionSummaryFromPoints(
+  points: SessionPoint[],
+  source: SessionData["summary"],
+): SessionData["summary"] {
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  const durationS = getPointDurationSeconds(points);
+  const heartRateStats = calculateHeartRateStats(points);
+
+  return {
+    ...source,
+    start_time: firstPoint?.t ?? source.start_time,
+    end_time: lastPoint?.t ?? source.end_time,
+    duration_min: durationS / 60,
+    trackpoint_count: points.length,
+    distance_m: calculateDistanceMeters(points),
+    bbox: {
+      min_lat: Math.min(...points.map((point) => point.lat)),
+      min_lon: Math.min(...points.map((point) => point.lon)),
+      max_lat: Math.max(...points.map((point) => point.lat)),
+      max_lon: Math.max(...points.map((point) => point.lon)),
+    },
+    heart_rate_stats: heartRateStats ?? null,
+    recovery_summary: undefined,
+  };
+}
+
+function calculateHeartRateStats(points: SessionPoint[]): SessionData["summary"]["heart_rate_stats"] {
+  const samples = points
+    .map((point) => point.heart_rate_bpm)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+  if (!samples.length) return null;
+
+  return {
+    avg_bpm: samples.reduce((total, value) => total + value, 0) / samples.length,
+    min_bpm: Math.min(...samples),
+    max_bpm: Math.max(...samples),
+    start_bpm: samples[0],
+    end_bpm: samples[samples.length - 1],
+    sample_count: samples.length,
+  };
+}
+
+function getPointDurationSeconds(points: SessionPoint[]): number {
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  if (!firstPoint || !lastPoint) return 0;
+  return Math.max(0, (new Date(lastPoint.t).getTime() - new Date(firstPoint.t).getTime()) / 1000);
+}
+
+function formatPointTime(point?: SessionPoint): string {
+  if (!point) return "—";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(point.t));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function buildActivityRecord({

@@ -576,7 +576,7 @@ function SegmentRangeDialog({
               selectedEndIdx={draftEnd}
               playheadIdx={playheadIdx}
               units={units}
-              showHeartRate={showHeartRateChart}
+              showHeartRate={false}
               onHoverPoint={onGraphHover}
               onSelectPoint={onGraphSelect}
             />
