@@ -1101,8 +1101,12 @@ function getSessionTrailPoints(
   if (traceMode === "none" || traceMode === "heatmap") return null;
   if (traceMode !== "streak") return points.slice(0, playheadIdx + 1);
 
+  const containing = segments.find(
+    (segment) => playheadIdx >= segment.start_idx && playheadIdx <= segment.end_idx,
+  );
   const tailLength = getDynamicStreakLength(segments, playheadIdx);
-  return points.slice(Math.max(0, playheadIdx - tailLength + 1), playheadIdx + 1);
+  const startIdx = containing ? containing.start_idx : 0;
+  return points.slice(Math.max(startIdx, playheadIdx - tailLength + 1), playheadIdx + 1);
 }
 
 function getFocusedTrailPoints(

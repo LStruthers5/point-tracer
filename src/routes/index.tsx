@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FolderOpen, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
+import { Download, FileJson, Film, FolderOpen, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
@@ -14,6 +14,7 @@ import { PaceGraph } from "@/components/PaceGraph";
 import { SettingsMenu } from "@/components/SettingsMenu";
 import { SegmentAnalyticsPanel } from "@/components/SegmentAnalyticsPanel";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
+import { ExportVideoDialog } from "@/components/ExportVideoDialog";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -62,6 +63,7 @@ function Index() {
   const [showFullRoute, setShowFullRoute] = useState(true);
   const [graphPreviewIdx, setGraphPreviewIdx] = useState<number | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [exportVideoOpen, setExportVideoOpen] = useState(false);
   const [selectedBasemapStyle, setSelectedBasemapStyle] = useState<MapBasemapStyle | null>(null);
   const [manualSegmentIds, setManualSegmentIds] = useState<Set<number>>(() => new Set());
   const [mapElements, setMapElements] = useState<MapElement[]>([]);
@@ -71,6 +73,8 @@ function Index() {
   const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
+  const effectiveBasemapStyle: MapBasemapStyle =
+    selectedBasemapStyle ?? (settings.theme === "dark" ? "dark" : "street");
   const focusAnalyticsRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollFocusAnalyticsRef = useRef(false);
 
@@ -504,21 +508,26 @@ function Index() {
             onOpen={openLocalActivity}
             onDelete={deleteLocalActivity}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={exportCorrectedBoundaries}
+          <ExportMenu
             disabled={!data}
-            title="Export current edited segment boundaries as JSON"
-            className="h-8 gap-1.5 text-xs text-muted-foreground"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </Button>
+            onExportVideo={() => setExportVideoOpen(true)}
+            onExportBoundaries={exportCorrectedBoundaries}
+          />
           <SettingsMenu settings={settings} onChange={setSettings} />
         </div>
       </header>
+
+      <ExportVideoDialog
+        open={exportVideoOpen}
+        onOpenChange={setExportVideoOpen}
+        data={data}
+        displayOptions={mapDisplayOptions}
+        basemapStyle={effectiveBasemapStyle}
+        units={settings.units}
+        selectedSegment={selectedSegment}
+        mapElements={mapElements}
+        exportMode={!showFullRoute && selectedSegment ? "segment" : "session"}
+      />
 
       <UploadPanel onUploaded={handleUploaded} units={settings.units} />
 
@@ -656,6 +665,7 @@ function Index() {
                           endIdx={getFocusGraphEndIdx(data.segments, selectedIndex, data.points.length)}
                           selectedStartIdx={selectedSegment.start_idx}
                           selectedEndIdx={selectedSegment.end_idx}
+                          segmentHighlights={[selectedSegment]}
                           playheadIdx={selectedSegment.start_idx + playback.idx}
                           units={settings.units}
                           showHeartRate={settings.showHeartRateChart}
@@ -842,6 +852,64 @@ function getFocusGraphEndIdx(segments: SessionSegment[], selectedIndex: number, 
   if (!selected) return Math.max(0, pointCount - 1);
   if (!next) return selected.end_idx;
   return Math.min(Math.max(selected.end_idx, next.start_idx), Math.max(0, pointCount - 1));
+}
+
+function ExportMenu({
+  disabled,
+  onExportVideo,
+  onExportBoundaries,
+}: {
+  disabled: boolean;
+  onExportVideo: () => void;
+  onExportBoundaries: () => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="h-8 gap-1.5 text-xs text-muted-foreground"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Export
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="z-[2200] w-64 rounded-2xl border-border/70 bg-card p-2 shadow-2xl"
+      >
+        <button
+          type="button"
+          onClick={onExportVideo}
+          className="flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-secondary"
+        >
+          <Film className="mt-0.5 h-4 w-4 text-primary" />
+          <span>
+            <span className="block text-xs font-semibold text-foreground">Export video replay</span>
+            <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+              Vertical 9:16 map replay using current display settings.
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onExportBoundaries}
+          className="mt-1 flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-secondary"
+        >
+          <FileJson className="mt-0.5 h-4 w-4 text-muted-foreground" />
+          <span>
+            <span className="block text-xs font-semibold text-foreground">Export boundaries JSON</span>
+            <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+              Download corrected segment boundaries for evaluator fixtures.
+            </span>
+          </span>
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function ActivityLibraryMenu({
