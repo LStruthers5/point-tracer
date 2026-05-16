@@ -34,6 +34,8 @@ dist-ssr
 # Backend Environments
 .venv/
 backend/.venv/
+backend/.env
+backend/.local/
 node_modules/
 dist/
 build/

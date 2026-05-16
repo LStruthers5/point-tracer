@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileJson, Film, FolderOpen, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { ChevronDown, Download, FileJson, Film, FolderOpen, Map, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
-import { SegmentList } from "@/components/SegmentList";
 import { AnalyticsCards } from "@/components/AnalyticsCards";
 import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
@@ -15,6 +15,7 @@ import { SettingsMenu } from "@/components/SettingsMenu";
 import { SegmentAnalyticsPanel } from "@/components/SegmentAnalyticsPanel";
 import { SessionTimelineEditor } from "@/components/SessionTimelineEditor";
 import { ExportVideoDialog } from "@/components/ExportVideoDialog";
+import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,6 +52,7 @@ interface LocalActivityRecord {
   manual_segment_ids: number[];
   map_display_options: MapDisplayOptions;
   map_elements: MapElement[];
+  original_session?: SessionData;
   session: SessionData;
 }
 
@@ -413,6 +415,27 @@ function Index() {
     playback.pause();
   };
 
+  const restoreOriginalActivity = (activityName: string) => {
+    if (!data) return;
+
+    const originalSession = getOriginalSession(activityLibrary, activeActivityId) ?? data;
+    const restored: SessionData = {
+      ...originalSession,
+      activity_name: activityName.trim() || originalSession.activity_name,
+    };
+
+    setData(restored);
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setShowFullRoute(true);
+    setManualSegmentIds(new Set());
+    sessionPlayback.seek(0);
+    sessionPlayback.pause();
+    playback.seek(0);
+    playback.pause();
+  };
+
   const goToSegment = (offset: number) => {
     if (selectedIndex < 0) return;
     const next = segments[selectedIndex + offset];
@@ -537,12 +560,6 @@ function Index() {
           >
             Focus Segment
           </button>
-          <ActivityLibraryMenu
-            records={activityLibrary}
-            activeId={activeActivityId}
-            onOpen={openLocalActivity}
-            onDelete={deleteLocalActivity}
-          />
           <ExportMenu
             disabled={!data}
             onExportVideo={() => setExportVideoOpen(true)}
@@ -568,8 +585,10 @@ function Index() {
         open={activityEditOpen}
         onOpenChange={setActivityEditOpen}
         data={data}
+        originalData={getOriginalSession(activityLibrary, activeActivityId) ?? data}
         units={settings.units}
         onApply={applyActivityEdit}
+        onRestoreOriginal={restoreOriginalActivity}
       />
 
       <UploadPanel onUploaded={handleUploaded} units={settings.units} />
@@ -585,13 +604,13 @@ function Index() {
               units={settings.units}
               onEdit={() => setActivityEditOpen(true)}
             />
-            <SegmentList
-              segments={data.segments}
-              selectedId={selectedSegmentId}
-              hoveredId={hoveredSegmentId}
-              units={settings.units}
-              onSelect={handleSelectSegment}
-              onHover={setHoveredSegmentId}
+            <UtilitySidebar
+              displayOptions={mapDisplayOptions}
+              onDisplayOptionsChange={updateMapDisplayOptions}
+              records={activityLibrary}
+              activeId={activeActivityId}
+              onOpenActivity={openLocalActivity}
+              onDeleteActivity={deleteLocalActivity}
             />
           </aside>
         </ResizablePanel>
@@ -660,7 +679,6 @@ function Index() {
                         onSeek={sessionPlayback.seek}
                         onGraphHover={setGraphPreviewIdx}
                         onGraphSelect={seekSessionGraphPoint}
-                        onDisplayOptionsChange={updateMapDisplayOptions}
                         onFocusSelected={focusSelectedSegment}
                         onUpdateSegment={updateSegmentRange}
                         onDeleteSelected={deleteSelectedSegment}
@@ -820,18 +838,174 @@ function Index() {
   );
 }
 
+function UtilitySidebar({
+  displayOptions,
+  onDisplayOptionsChange,
+  records,
+  activeId,
+  onOpenActivity,
+  onDeleteActivity,
+}: {
+  displayOptions: MapDisplayOptions;
+  onDisplayOptionsChange: (options: MapDisplayOptions) => void;
+  records: LocalActivityRecord[];
+  activeId: string | null;
+  onOpenActivity: (record: LocalActivityRecord) => void;
+  onDeleteActivity: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <UtilitySection
+        title="Map display"
+        description="Trace, color, and playback visualization."
+        icon={<Map className="h-3.5 w-3.5" />}
+        defaultOpen
+      >
+        <MapDisplayControls displayOptions={displayOptions} onChange={onDisplayOptionsChange} />
+      </UtilitySection>
+
+      <UtilitySection
+        title="Activity library"
+        description="Reopen autosaved local sessions."
+        icon={<FolderOpen className="h-3.5 w-3.5" />}
+        defaultOpen
+      >
+        <SidebarActivityLibrary
+          records={records}
+          activeId={activeId}
+          onOpen={onOpenActivity}
+          onDelete={onDeleteActivity}
+        />
+      </UtilitySection>
+    </div>
+  );
+}
+
+function UtilitySection({
+  title,
+  description,
+  icon,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(Boolean(defaultOpen));
+
+  return (
+    <details
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      className="group rounded-2xl border border-border/50 bg-card/80 p-3 shadow-sm"
+    >
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            {icon}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold uppercase tracking-widest text-foreground">
+              {title}
+            </span>
+            <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
+              {description}
+            </span>
+          </span>
+        </div>
+        <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 border-t border-border/45 pt-3">{children}</div>
+    </details>
+  );
+}
+
+function SidebarActivityLibrary({
+  records,
+  activeId,
+  onOpen,
+  onDelete,
+}: {
+  records: LocalActivityRecord[];
+  activeId: string | null;
+  onOpen: (record: LocalActivityRecord) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (records.length === 0) {
+    return (
+      <div className="rounded-xl border border-border/50 bg-secondary/35 px-3 py-4 text-center text-xs text-muted-foreground">
+        Upload an activity to add it here.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+      {records.map((record) => (
+        <div
+          key={record.id}
+          className="flex items-center gap-2 rounded-xl border border-border/45 bg-secondary/30 p-2"
+        >
+          <button
+            type="button"
+            onClick={() => onOpen(record)}
+            className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left transition hover:bg-background/70"
+          >
+            <div className="flex items-center gap-2">
+              <div className="truncate text-xs font-semibold text-foreground">
+                {record.activity_name}
+              </div>
+              <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-primary">
+                {record.sport}
+              </span>
+              {record.id === activeId ? (
+                <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-primary">
+                  Open
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 truncate text-[10px] text-muted-foreground">
+              Autosaved {formatSavedAt(record.updated_at)} · {record.session.segments.length} segments
+            </div>
+            <div className="mt-1 truncate text-[10px] text-muted-foreground/80">
+              {record.edited_manually ? "Edited manually" : "Auto-detected"} ·{" "}
+              {record.source_file || "No source file"}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(record.id)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+            aria-label={`Delete local activity ${record.activity_name}`}
+            title="Delete local activity"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ActivityEditDialog({
   open,
   onOpenChange,
   data,
+  originalData,
   units,
   onApply,
+  onRestoreOriginal,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   data: SessionData;
+  originalData: SessionData;
   units: AppSettings["units"];
   onApply: (activityName: string, cropStartIdx: number, cropEndIdx: number) => void;
+  onRestoreOriginal: (activityName: string) => void;
 }) {
   const [draftName, setDraftName] = useState(data.activity_name);
   const [cropStartIdx, setCropStartIdx] = useState(0);
@@ -851,6 +1025,10 @@ function ActivityEditDialog({
   const cropDurationS = getPointDurationSeconds(cropPoints);
   const cropDistanceM = calculateDistanceMeters(cropPoints);
   const isFullRange = startIdx === 0 && endIdx === maxIdx;
+  const canRestoreOriginal =
+    originalData.points.length !== data.points.length ||
+    originalData.summary.start_time !== data.summary.start_time ||
+    originalData.summary.end_time !== data.summary.end_time;
   const canApply = data.points.length > 1 && endIdx > startIdx;
 
   const setStart = (idx: number) => setCropStartIdx(clampNumber(idx, 0, Math.max(0, endIdx - 1)));
@@ -945,6 +1123,29 @@ function ActivityEditDialog({
               }}
             >
               Reset crop
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/35 p-3">
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Original activity
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Restore the full uploaded session from the local activity record.
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canRestoreOriginal}
+              onClick={() => {
+                onRestoreOriginal(draftName);
+                onOpenChange(false);
+              }}
+            >
+              Restore original
             </Button>
           </div>
         </div>
@@ -1447,6 +1648,12 @@ function buildActivityRecord({
   mapElements: MapElement[];
 }): LocalActivityRecord {
   const now = new Date().toISOString();
+  const originalSession = existing?.original_session ?? data;
+  const activityEdited =
+    data.activity_name !== originalSession.activity_name ||
+    data.points.length !== originalSession.points.length ||
+    data.summary.start_time !== originalSession.summary.start_time ||
+    data.summary.end_time !== originalSession.summary.end_time;
 
   return {
     id,
@@ -1456,12 +1663,19 @@ function buildActivityRecord({
     segmentation_mode: data.segmentation_method.type,
     uploaded_at: existing?.uploaded_at ?? now,
     updated_at: now,
-    edited_manually: manualSegmentIds.size > 0 || Boolean(existing?.edited_manually),
+    edited_manually: manualSegmentIds.size > 0 || activityEdited,
     manual_segment_ids: [...manualSegmentIds],
     map_display_options: mapDisplayOptions,
     map_elements: mapElements,
+    original_session: originalSession,
     session: data,
   };
+}
+
+function getOriginalSession(records: LocalActivityRecord[], activeId: string | null) {
+  if (!activeId) return null;
+  const record = records.find((candidate) => candidate.id === activeId);
+  return record?.original_session ?? record?.session ?? null;
 }
 
 function upsertActivityRecord(records: LocalActivityRecord[], record: LocalActivityRecord) {

@@ -2,14 +2,7 @@ import { useMemo, useState } from "react";
 import { Pause, Pencil, Play, Plus, RotateCcw, Scissors, Target, Trash2 } from "lucide-react";
 import type { SessionPoint, SessionSegment, SessionSummary } from "@/types/session";
 import type { UnitSystem } from "@/types/app-settings";
-import type {
-  MapColorMode,
-  MapDisplayOptions,
-  MapGradientMode,
-  MapHeatmapMode,
-  MapLineColor,
-  MapTraceMode,
-} from "@/types/map-display";
+import type { MapDisplayOptions } from "@/types/map-display";
 import { getMapSpeedGradientStops, MAP_LINE_COLORS } from "@/types/map-display";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,13 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatDuration, formatDistance, formatTimeRange } from "@/lib/format";
 
 interface SessionTimelineEditorProps {
@@ -53,7 +39,6 @@ interface SessionTimelineEditorProps {
   onSeek: (idx: number) => void;
   onGraphHover: (idx: number | null) => void;
   onGraphSelect: (idx: number) => void;
-  onDisplayOptionsChange: (options: MapDisplayOptions) => void;
   onFocusSelected: () => void;
   onDeleteSelected: () => void;
   onUpdateSegment: (segmentId: number, startIdx: number, endIdx: number, label?: string) => void;
@@ -83,7 +68,6 @@ export function SessionTimelineEditor({
   onSeek,
   onGraphHover,
   onGraphSelect,
-  onDisplayOptionsChange,
   onFocusSelected,
   onUpdateSegment,
   onDeleteSelected,
@@ -344,80 +328,6 @@ export function SessionTimelineEditor({
           <Metric label="Points" value={String(summary.trackpoint_count)} />
           <Metric label="Distance" value={formatDistance(summary.distance_m, units)} />
         </div>
-      </div>
-
-      <div className="mt-3 grid gap-2 border-t border-border/50 pt-3 sm:grid-cols-4">
-        <OptionSelect
-          label="Trace"
-          value={displayOptions.traceMode}
-          onValueChange={(traceMode) =>
-            onDisplayOptionsChange({ ...displayOptions, traceMode: traceMode as MapTraceMode })
-          }
-          items={[
-            { value: "full", label: "Full trace" },
-            { value: "streak", label: "Streak" },
-            { value: "none", label: "No trace" },
-            { value: "heatmap", label: "Heatmap" },
-          ]}
-        />
-        {displayOptions.traceMode === "heatmap" ? (
-          <OptionSelect
-            label="Heatmap"
-            value={displayOptions.heatmapMode}
-            onValueChange={(heatmapMode) =>
-              onDisplayOptionsChange({
-                ...displayOptions,
-                heatmapMode: heatmapMode as MapHeatmapMode,
-              })
-            }
-            items={[
-              { value: "occupancy", label: "Occupancy" },
-              { value: "speed", label: "Speed by area" },
-            ]}
-          />
-        ) : null}
-        <OptionSelect
-          label="Color"
-          value={displayOptions.lineColor}
-          onValueChange={(lineColor) =>
-            onDisplayOptionsChange({ ...displayOptions, lineColor: lineColor as MapLineColor })
-          }
-          items={[
-            { value: "green", label: "Green" },
-            { value: "cyan", label: "Cyan" },
-            { value: "amber", label: "Amber" },
-            { value: "rose", label: "Rose" },
-          ]}
-        />
-        {displayOptions.traceMode !== "heatmap" ? (
-          <>
-            <OptionSelect
-              label="Line mode"
-              value={displayOptions.colorMode}
-              onValueChange={(colorMode) =>
-                onDisplayOptionsChange({ ...displayOptions, colorMode: colorMode as MapColorMode })
-              }
-              items={[
-                { value: "solid", label: "Solid" },
-                { value: "speed", label: "Speed gradient" },
-              ]}
-            />
-            <OptionSelect
-              label="Gradient"
-              value={displayOptions.gradientMode}
-              onValueChange={(gradientMode) =>
-                onDisplayOptionsChange({
-                  ...displayOptions,
-                  gradientMode: gradientMode as MapGradientMode,
-                })
-              }
-              items={[
-                { value: "multi", label: "Multicolor" },
-                { value: "single", label: "Single color" },
-              ]}
-            />
-          </>
-        ) : null}
       </div>
 
       {showPaceGraph && points.length > 1 ? (
@@ -828,38 +738,6 @@ function mixHex(from: string, to: string, amount: number) {
 function hexToRgb(hex: string) {
   const value = hex.replace("#", "");
   return [0, 2, 4].map((start) => parseInt(value.slice(start, start + 2), 16));
-}
-
-function OptionSelect({
-  label,
-  value,
-  items,
-  onValueChange,
-}: {
-  label: string;
-  value: string;
-  items: Array<{ value: string; label: string }>;
-  onValueChange: (value: string) => void;
-}) {
-  return (
-    <label className="min-w-0 space-y-1">
-      <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-8 rounded-lg border-border/70 bg-secondary/35 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {items.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </label>
-  );
 }
 
 function IconButton({

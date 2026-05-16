@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.services.segmenter import ResetArea, segment_activity_bytes
+from app.services import strava
 
 
 app = FastAPI(
@@ -131,3 +133,119 @@ async def upload_gpx(
             status_code=500,
             detail="Unexpected error while processing activity file.",
         ) from exc
+
+
+@app.get("/api/strava/connect")
+def connect_strava() -> RedirectResponse:
+    try:
+        return RedirectResponse(strava.build_authorization_url())
+    except strava.StravaConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/strava/callback")
+def strava_callback(
+    code: str | None = None,
+    state: str | None = None,
+    scope: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    if error:
+        return RedirectResponse(strava.get_frontend_redirect_url("error", error))
+
+    try:
+        strava.exchange_code_for_token(code or "", state, accepted_scope=scope)
+        return RedirectResponse(strava.get_frontend_redirect_url("connected"))
+    except strava.StravaScopeError as exc:
+        return RedirectResponse(strava.get_frontend_redirect_url("scope_error", str(exc)))
+    except strava.StravaError as exc:
+        return RedirectResponse(strava.get_frontend_redirect_url("error", str(exc)))
+
+
+@app.get("/api/strava/status")
+def strava_status() -> dict:
+    return strava.get_connection_status()
+
+
+@app.get("/api/strava/activities")
+def strava_activities(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=50),
+) -> dict:
+    try:
+        return strava.fetch_recent_activities(page=page, per_page=per_page)
+    except strava.StravaAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except strava.StravaScopeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except strava.StravaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/strava/disconnect")
+def disconnect_strava() -> dict:
+    strava.disconnect()
+    return {"connected": False}
+
+
+@app.post("/api/strava/import/{activity_id}")
+async def import_strava_activity(
+    activity_id: int,
+    sport: str = Form(default=""),
+    segmentation_mode: str = Form(default="auto"),
+    split_distance_m: float | None = Form(default=None),
+    split_duration_s: float | None = Form(default=None),
+    reset_area_lat: float | None = Form(default=None),
+    reset_area_lon: float | None = Form(default=None),
+) -> dict:
+    normalized_sport = sport.strip().lower() or None
+
+    normalized_segmentation_mode = segmentation_mode.strip().lower()
+    if normalized_segmentation_mode not in {"auto", "distance", "time", "manual"}:
+        raise HTTPException(status_code=400, detail="Unsupported segmentation mode.")
+
+    if normalized_segmentation_mode == "distance" and (
+        split_distance_m is None or split_distance_m <= 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="split_distance_m must be greater than 0 for distance splits.",
+        )
+
+    if normalized_segmentation_mode == "time" and (
+        split_duration_s is None or split_duration_s <= 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="split_duration_s must be greater than 0 for time splits.",
+        )
+
+    if (reset_area_lat is None) != (reset_area_lon is None):
+        raise HTTPException(
+            status_code=400,
+            detail="reset_area_lat and reset_area_lon must be provided together.",
+        )
+
+    reset_area = (
+        ResetArea(lat=reset_area_lat, lon=reset_area_lon)
+        if reset_area_lat is not None and reset_area_lon is not None
+        else None
+    )
+
+    try:
+        return strava.import_activity(
+            activity_id,
+            sport=normalized_sport,
+            segmentation_mode=normalized_segmentation_mode,
+            split_distance_m=split_distance_m,
+            split_duration_s=split_duration_s,
+            reset_area=reset_area,
+        )
+    except strava.StravaAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except strava.StravaScopeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except strava.StravaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
