@@ -3,3 +3,4 @@ uvicorn
 python-multipart
 gpxpy
 garmin-fit-sdk
+certifi
