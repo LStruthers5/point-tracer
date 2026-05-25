@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -10,23 +11,38 @@ from app.services.segmenter import ResetArea, segment_activity_bytes
 from app.services import strava
 
 
+strava.load_backend_env()
+
+
+def get_cors_origins() -> list[str]:
+    defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+    ]
+    configured = os.environ.get("POINTTRACER_CORS_ORIGINS", "")
+    frontend_url = os.environ.get("POINTTRACER_FRONTEND_URL", "")
+    values = [
+        origin.strip().rstrip("/")
+        for origin in configured.split(",")
+        if origin.strip()
+    ]
+    if frontend_url.strip():
+        values.append(frontend_url.strip().rstrip("/"))
+    return sorted(set(defaults + values))
+
+
 app = FastAPI(
     title="PointSplit Backend",
     version="0.1.0",
     description="Upload GPX files, segment them heuristically, and return SessionData JSON.",
 )
 
-# Adjust this once you know your frontend dev URL exactly.
-# Common Vite default is http://localhost:5173
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8080",
-    ],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

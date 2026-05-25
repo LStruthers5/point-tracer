@@ -20,7 +20,9 @@ import { Button } from "@/components/ui/button";
 import type { UnitSystem } from "@/types/app-settings";
 import type { SessionData } from "@/types/session";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
+  "http://127.0.0.1:8000";
 const ENDPOINT = `${API_BASE}/api/upload/gpx`;
 
 const SPORTS = [
@@ -374,7 +376,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         type="button"
         variant={stravaConnected ? "outline" : "secondary"}
         size="sm"
-        className="h-8 text-xs"
+        className="h-8 border-amber-500/45 bg-amber-500/15 text-xs font-semibold text-amber-700 hover:border-amber-500 hover:bg-amber-500/25 hover:text-amber-800 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:border-amber-400 dark:hover:bg-amber-500/25 dark:hover:text-amber-50"
         disabled={stravaLoading || loading}
         onClick={() => {
           if (stravaConnected) {
@@ -395,7 +397,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       </Button>
 
       {stravaConnected ? (
-        <div className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] text-primary">
+        <div className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-500">
           <CheckCircle2 className="h-3.5 w-3.5" />
           {formatAthleteName(stravaStatus?.athlete) ?? "Strava connected"}
         </div>
@@ -415,10 +417,10 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       )}
 
       {showStravaPicker && (
-        <div className="w-full rounded-xl border border-border/50 bg-background/95 p-3 shadow-lg">
+        <div className="w-full rounded-xl border border-amber-500/25 bg-background/95 p-3 shadow-lg shadow-amber-950/10">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-500">
                 Recent Strava activities
               </div>
               <div className="text-xs text-muted-foreground">
@@ -430,7 +432,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-muted-foreground"
+                className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
                 disabled={stravaLoading}
                 onClick={() => void loadStravaActivities(1, true)}
               >
@@ -441,7 +443,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-muted-foreground"
+                className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
                 disabled={stravaLoading}
                 onClick={() => void disconnectStrava()}
               >
@@ -452,7 +454,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs"
+                className="h-7 text-xs hover:bg-amber-500/10 hover:text-amber-500"
                 onClick={() => setShowStravaPicker(false)}
               >
                 Close
@@ -461,8 +463,8 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
           </div>
           <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
             {stravaLoading && stravaActivities.length === 0 ? (
-              <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-xs text-muted-foreground">
-                <Loader2 className="mb-2 h-4 w-4 animate-spin text-primary" />
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-muted-foreground">
+                <Loader2 className="mb-2 h-4 w-4 animate-spin text-amber-500" />
                 Loading recent activities…
               </div>
             ) : null}
@@ -475,7 +477,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
               <button
                 key={activity.id}
                 type="button"
-                className="rounded-lg border border-border/60 bg-card/60 p-3 text-left transition hover:border-primary/70 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-border/60 bg-card/60 p-3 text-left transition hover:border-amber-500/80 hover:bg-amber-500/10 focus-visible:border-amber-500/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={stravaImportingId !== null || activity.has_gps_hint === false}
                 onClick={() => void handleStravaImport(activity)}
               >
@@ -489,14 +491,14 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
                     </div>
                   </div>
                   {stravaImportingId === activity.id ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+                    <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
                   ) : null}
                 </div>
                 <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
                   <span>{formatDistance(activity.distance_m, units)}</span>
                   <span>{formatDuration(activity.moving_time_s ?? activity.elapsed_time_s)}</span>
                   <span>{formatSportMapping(activity.pointtracer_sport)}</span>
-                  {activity.has_heartrate ? <span className="text-rose-400">HR</span> : null}
+                  {activity.has_heartrate ? <span className="text-amber-500">HR</span> : null}
                 </div>
                 {activity.has_gps_hint === false ? (
                   <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-500">
@@ -511,7 +513,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
               type="button"
               variant="outline"
               size="sm"
-              className="mt-3 h-8 w-full text-xs"
+              className="mt-3 h-8 w-full border-amber-500/35 text-xs hover:bg-amber-500/10 hover:text-amber-500"
               disabled={stravaLoading}
               onClick={() => void loadStravaActivities(stravaPage + 1, false)}
             >
