@@ -50,6 +50,12 @@ Most hosts provide their own `$PORT`. Use that platform's equivalent of:
 uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir backend
 ```
 
+Railway note: if Railway detects the repository as a Node app, use the root `Dockerfile` for the backend service and leave the custom start command blank. The Dockerfile installs `backend/requirements.txt` and starts the FastAPI app with:
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir backend
+```
+
 ## Strava Production Setup
 
 In the Strava app dashboard:
