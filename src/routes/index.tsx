@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, Download, FileJson, Film, FolderOpen, Map, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
-import { useSessionData } from "@/hooks/use-session-data";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { AnalyticsCards } from "@/components/AnalyticsCards";
 import { EditControls } from "@/components/EditControls";
@@ -67,7 +66,6 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { data: demoData, loading, error } = useSessionData();
   const [data, setData] = useState<SessionData | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
@@ -122,11 +120,6 @@ function Index() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mapExpanded]);
-
-  // Seed with demo data on first load
-  useEffect(() => {
-    if (demoData && !data) setData(demoData);
-  }, [demoData, data]);
 
   useEffect(() => {
     if (!data || !activeActivityId) return;
@@ -222,25 +215,6 @@ function Index() {
     sessionPlayback.seek(0);
     sessionPlayback.pause();
   };
-
-  if (loading && !data) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-muted-foreground">Loading session…</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-destructive text-sm">Failed to load session: {error}</p>
-      </div>
-    );
-  }
 
   const handleSelectSegment = (id: number) => {
     setGraphPreviewIdx(null);
@@ -485,6 +459,68 @@ function Index() {
     setActivityLibrary(next);
     if (id === activeActivityId) setActiveActivityId(null);
   };
+
+  if (!data) {
+    return (
+      <div className="h-screen flex flex-col overflow-hidden">
+        <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-primary" />
+            <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExportMenu disabled onExportVideo={() => undefined} onExportBoundaries={() => undefined} />
+            <SettingsMenu settings={settings} onChange={setSettings} />
+          </div>
+        </header>
+
+        <UploadPanel onUploaded={handleUploaded} units={settings.units} />
+
+        <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
+          <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
+            <aside className="flex h-full flex-col gap-3 overflow-y-auto border-r border-border/30 p-3">
+              <div className="rounded-3xl border border-border/60 bg-card/80 p-5 shadow-sm">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  Session
+                </div>
+                <h1 className="mt-3 text-2xl font-bold tracking-tight text-foreground">
+                  Upload an activity
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Start with a GPX/FIT upload or connect Strava to import one of your activities.
+                </p>
+              </div>
+              <UtilitySidebar
+                displayOptions={mapDisplayOptions}
+                onDisplayOptionsChange={updateMapDisplayOptions}
+                records={activityLibrary}
+                activeId={activeActivityId}
+                onOpenActivity={openLocalActivity}
+                onDeleteActivity={deleteLocalActivity}
+              />
+            </aside>
+          </ResizablePanel>
+          <ResizableHandle withHandle className="bg-border/40" />
+          <ResizablePanel minSize="28rem">
+            <main className="flex h-full items-center justify-center p-6">
+              <div className="max-w-xl rounded-3xl border border-dashed border-border/70 bg-card/50 p-8 text-center shadow-sm">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <FolderOpen className="h-6 w-6" />
+                </div>
+                <h2 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
+                  No activity loaded yet
+                </h2>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Upload a GPX/FIT file or connect Strava above. Your reviewed activities autosave
+                  locally in this browser and will appear in the Activity Library.
+                </p>
+              </div>
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    );
+  }
 
   const exportCorrectedBoundaries = () => {
     if (!data) return;
