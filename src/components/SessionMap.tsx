@@ -22,6 +22,7 @@ interface SessionMapProps {
   onMapElementsChange: (elements: MapElement[]) => void;
   basemapStyle: MapBasemapStyle | null;
   onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
+  sport?: string;
 }
 
 type SessionMapClientComponent = React.ComponentType<SessionMapProps>;

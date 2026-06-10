@@ -79,6 +79,7 @@ interface SessionMapClientProps {
   onMapElementsChange: (elements: MapElement[]) => void;
   basemapStyle: MapBasemapStyle | null;
   onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
+  sport?: string;
 }
 
 function FitBounds({ bbox, focused }: { bbox: SegmentBbox; focused: boolean }) {
@@ -118,6 +119,7 @@ export function SessionMapClient({
   onMapElementsChange,
   basemapStyle: selectedBasemapStyle,
   onBasemapStyleChange,
+  sport,
 }: SessionMapClientProps) {
   const themedBasemapStyle = theme === "dark" ? "dark" : "street";
   const [elementPickerOpen, setElementPickerOpen] = useState(false);
@@ -341,6 +343,7 @@ export function SessionMapClient({
 
       {elementPickerOpen ? (
         <MapElementPicker
+          sport={sport}
           onSelect={(type, template) => {
             setPlacingTemplate(template);
             setPlacingElementType(type);
@@ -449,13 +452,32 @@ function MapElementPlacementHandler({
   return null;
 }
 
+function sportToCourtTemplate(sport: string): CourtTemplate | null {
+  const s = sport.toLowerCase();
+  if (s === "soccer") return "soccer";
+  if (s === "basketball") return "basketball";
+  if (s === "ultimate") return "ultimate";
+  if (s === "tennis") return "tennis";
+  if (s === "squash") return "squash";
+  return null;
+}
+
 function MapElementPicker({
+  sport,
   onSelect,
   onClose,
 }: {
+  sport?: string;
   onSelect: (type: MapElementType, template?: CourtTemplate) => void;
   onClose: () => void;
 }) {
+  const matchedTemplate = sport ? sportToCourtTemplate(sport) : null;
+  const templatesToShow: CourtTemplate[] = matchedTemplate
+    ? [matchedTemplate, "generic"]
+    : (["soccer", "basketball", "ultimate", "tennis", "squash", "generic"] as CourtTemplate[]);
+
+  const gridCols = templatesToShow.length <= 3 ? "sm:grid-cols-3" : templatesToShow.length <= 4 ? "sm:grid-cols-4" : "sm:grid-cols-6";
+
   return (
     <div className="absolute inset-0 z-[940] flex items-center justify-center p-6">
       <div className="relative w-full max-w-3xl">
@@ -471,8 +493,8 @@ function MapElementPicker({
         <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-white/50">
           Court &amp; field
         </div>
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {(["soccer", "basketball", "ultimate", "tennis", "generic"] as CourtTemplate[]).map(
+        <div className={`mb-4 grid grid-cols-2 gap-3 ${gridCols}`}>
+          {templatesToShow.map(
             (template) => {
               const spec = COURT_TEMPLATES[template];
               return (
@@ -561,6 +583,19 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
         <line x1="1" y1="9" x2="19" y2="9" />
         <line x1="4" y1="3" x2="4" y2="9" />
         <line x1="16" y1="3" x2="16" y2="9" />
+      </svg>
+    );
+  }
+  if (template === "squash") {
+    return (
+      <svg viewBox="0 0 14 20" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="12" height="18" rx="0.5" />
+        {/* short line */}
+        <line x1="1" y1="8" x2="13" y2="8" />
+        {/* half court line */}
+        <line x1="7" y1="8" x2="7" y2="19" />
+        {/* service box line */}
+        <line x1="1" y1="12.5" x2="13" y2="12.5" />
       </svg>
     );
   }
