@@ -27,6 +27,8 @@ const ENDPOINT = `${API_BASE}/api/upload/gpx`;
 
 const SPORTS = [
   { value: "ultimate", label: "Ultimate" },
+  { value: "soccer", label: "Soccer" },
+  { value: "basketball", label: "Basketball" },
   { value: "tennis", label: "Tennis" },
   { value: "running", label: "Running" },
 ];
@@ -102,15 +104,23 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const stravaStatus = params.get("strava");
+    const stravaParam = params.get("strava");
     const stravaError = params.get("strava_error");
-    if (stravaError) {
+    if (stravaParam === "scope_error") {
+      setError(
+        'Strava connection was declined due to missing permissions. Click "Connect Strava" again and accept all requested scopes.',
+      );
+    } else if (stravaError === "access_denied") {
+      setError(
+        "Strava denied the connection. If PointTracer has reached its athlete limit, the app owner needs to request expanded access from Strava.",
+      );
+    } else if (stravaError) {
       setError(stravaError);
     }
-    if (stravaStatus) {
+    if (stravaParam) {
       window.history.replaceState({}, "", window.location.pathname);
     }
-    void refreshStravaStatus(stravaStatus === "connected");
+    void refreshStravaStatus(stravaParam === "connected");
   }, []);
 
   const buildSegmentationForm = () => {
@@ -190,6 +200,9 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
     setError(null);
     try {
       const res = await fetchOrExplain(`${API_BASE}/api/strava/activities?page=${page}&per_page=20`);
+      if (res.status === 429) {
+        throw new Error("Strava rate limit reached. Too many requests — try again in a few minutes.");
+      }
       if (!res.ok) {
         throw new Error(await readError(res, "Could not load Strava activities"));
       }
@@ -249,6 +262,9 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         method: "POST",
         body: form,
       });
+      if (res.status === 429) {
+        throw new Error("Strava rate limit reached. Too many requests — try again in a few minutes.");
+      }
       if (!res.ok) {
         throw new Error(await readError(res, "Strava import failed"));
       }
@@ -534,6 +550,17 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
               Load more activities
             </Button>
           ) : null}
+          <div className="mt-2.5 text-center text-[10px] text-muted-foreground/60">
+            Powered by{" "}
+            <a
+              href="https://www.strava.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-amber-500/80 hover:text-amber-500"
+            >
+              Strava
+            </a>
+          </div>
         </div>
       )}
     </div>

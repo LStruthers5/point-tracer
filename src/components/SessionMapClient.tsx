@@ -5,7 +5,8 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, useMap, useMapEv
 import "leaflet/dist/leaflet.css";
 import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
 import type { MapBasemapStyle, MapDisplayOptions, MapLineColor } from "@/types/map-display";
-import type { FieldMapElement, MapElement, MapElementType, PinMapElement } from "@/types/map-elements";
+import type { CourtTemplate, FieldMapElement, MapElement, MapElementType, PinMapElement } from "@/types/map-elements";
+import { COURT_TEMPLATES } from "@/lib/court-templates";
 import {
   getMapSingleColorGradientStops,
   getMapSpeedGradientStops,
@@ -121,6 +122,7 @@ export function SessionMapClient({
   const themedBasemapStyle = theme === "dark" ? "dark" : "street";
   const [elementPickerOpen, setElementPickerOpen] = useState(false);
   const [placingElementType, setPlacingElementType] = useState<MapElementType | null>(null);
+  const [placingTemplate, setPlacingTemplate] = useState<CourtTemplate | undefined>(undefined);
   const [selectedMapElementId, setSelectedMapElementId] = useState<string | null>(null);
   const suppressNextMapClickRef = useRef(false);
   const basemapStyle = selectedBasemapStyle ?? themedBasemapStyle;
@@ -198,10 +200,11 @@ export function SessionMapClient({
         <MapElementPlacementHandler
           placingType={placingElementType}
           onPlace={(lat, lon) => {
-            const nextElement = createMapElement(placingElementType, lat, lon);
+            const nextElement = createMapElement(placingElementType, lat, lon, placingTemplate);
             onMapElementsChange([...mapElements, nextElement]);
             setSelectedMapElementId(nextElement.id);
             setPlacingElementType(null);
+            setPlacingTemplate(undefined);
             setElementPickerOpen(false);
           }}
           onDeselect={() => {
@@ -338,7 +341,8 @@ export function SessionMapClient({
 
       {elementPickerOpen ? (
         <MapElementPicker
-          onSelect={(type) => {
+          onSelect={(type, template) => {
+            setPlacingTemplate(template);
             setPlacingElementType(type);
             setElementPickerOpen(false);
           }}
@@ -348,7 +352,10 @@ export function SessionMapClient({
 
       {placingElementType ? (
         <div className="pointer-events-none absolute left-1/2 top-16 z-[940] -translate-x-1/2 rounded-lg border border-white/15 bg-background/90 px-2.5 py-1.5 text-[10px] font-medium text-foreground shadow-xl backdrop-blur">
-          Click the map to place {MAP_ELEMENT_LABELS[placingElementType].toLowerCase()}
+          Click the map to place{" "}
+          {placingTemplate
+            ? COURT_TEMPLATES[placingTemplate].label.toLowerCase()
+            : MAP_ELEMENT_LABELS[placingElementType].toLowerCase()}
         </div>
       ) : null}
 
@@ -446,12 +453,12 @@ function MapElementPicker({
   onSelect,
   onClose,
 }: {
-  onSelect: (type: MapElementType) => void;
+  onSelect: (type: MapElementType, template?: CourtTemplate) => void;
   onClose: () => void;
 }) {
   return (
     <div className="absolute inset-0 z-[940] flex items-center justify-center p-6">
-      <div className="relative grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="relative w-full max-w-3xl">
         <button
           type="button"
           onClick={onClose}
@@ -460,27 +467,105 @@ function MapElementPicker({
         >
           <X className="h-4 w-4" />
         </button>
-        <MapElementCard
-          type="field"
-          title="Field Overlay"
-          description="Place a court or field outline."
-          onSelect={onSelect}
-        />
-        <MapElementCard
-          type="focal"
-          title="Focal Point"
-          description="Mark a tactical anchor point."
-          onSelect={onSelect}
-        />
-        <MapElementCard
-          type="bench"
-          title="Rest Area"
-          description="Mark a bench or sideline area."
-          onSelect={onSelect}
-        />
+
+        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-white/50">
+          Court &amp; field
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {(["soccer", "basketball", "ultimate", "tennis", "generic"] as CourtTemplate[]).map(
+            (template) => {
+              const spec = COURT_TEMPLATES[template];
+              return (
+                <button
+                  key={template}
+                  type="button"
+                  onClick={() => onSelect("field", template)}
+                  className="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-background/88 px-3 py-4 text-center shadow-2xl backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-background/95"
+                >
+                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-primary/35 bg-primary/12 transition group-hover:bg-primary/18">
+                    <CourtIcon template={template} className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="text-[11px] font-semibold leading-tight text-foreground">
+                    {spec.label}
+                  </div>
+                  <div className="mt-1 text-[9px] leading-snug text-muted-foreground">
+                    {spec.widthM}×{spec.heightM} m
+                  </div>
+                </button>
+              );
+            },
+          )}
+        </div>
+
+        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-white/50">
+          Marker
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <MapElementCard
+            type="focal"
+            title="Focal Point"
+            description="Mark a tactical anchor point."
+            onSelect={(type) => onSelect(type)}
+          />
+          <MapElementCard
+            type="bench"
+            title="Rest Area"
+            description="Mark a bench or sideline area."
+            onSelect={(type) => onSelect(type)}
+          />
+        </div>
       </div>
     </div>
   );
+}
+
+function CourtIcon({ template, className }: { template: CourtTemplate; className?: string }) {
+  // Simple SVG representations of each court/field shape
+  if (template === "soccer") {
+    return (
+      <svg viewBox="0 0 20 14" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="18" height="12" rx="0.5" />
+        <line x1="10" y1="1" x2="10" y2="13" />
+        <circle cx="10" cy="7" r="2.5" />
+        <rect x="1" y="4" width="3" height="6" />
+        <rect x="16" y="4" width="3" height="6" />
+      </svg>
+    );
+  }
+  if (template === "basketball") {
+    return (
+      <svg viewBox="0 0 20 12" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="18" height="10" rx="0.5" />
+        <line x1="10" y1="1" x2="10" y2="11" />
+        <circle cx="10" cy="6" r="2" />
+        <rect x="1" y="3.5" width="5" height="5" />
+        <rect x="14" y="3.5" width="5" height="5" />
+      </svg>
+    );
+  }
+  if (template === "ultimate") {
+    return (
+      <svg viewBox="0 0 20 10" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="18" height="8" rx="0.5" />
+        <line x1="4.5" y1="1" x2="4.5" y2="9" />
+        <line x1="15.5" y1="1" x2="15.5" y2="9" />
+      </svg>
+    );
+  }
+  if (template === "tennis") {
+    return (
+      <svg viewBox="0 0 20 12" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="18" height="10" rx="0.5" />
+        <line x1="10" y1="1" x2="10" y2="11" />
+        <line x1="1" y1="3" x2="19" y2="3" />
+        <line x1="1" y1="9" x2="19" y2="9" />
+        <line x1="4" y1="3" x2="4" y2="9" />
+        <line x1="16" y1="3" x2="16" y2="9" />
+      </svg>
+    );
+  }
+  // generic
+  return <MapIcon className={className ?? "h-5 w-5"} />;
 }
 
 function MapElementCard({
@@ -511,18 +596,25 @@ function MapElementCard({
   );
 }
 
-function createMapElement(type: MapElementType | null, lat: number, lon: number): MapElement {
+function createMapElement(
+  type: MapElementType | null,
+  lat: number,
+  lon: number,
+  template?: CourtTemplate,
+): MapElement {
   const id = `map-element-${Date.now()}`;
 
   if (type === "field") {
+    const spec = COURT_TEMPLATES[template ?? "generic"];
     return {
       id,
       type: "field",
-      label: MAP_ELEMENT_LABELS.field,
+      label: spec.label,
       center: { lat, lon },
-      widthM: 92,
-      heightM: 42,
+      widthM: spec.widthM,
+      heightM: spec.heightM,
       rotationDeg: 0,
+      template,
     };
   }
 
@@ -721,6 +813,11 @@ function FieldElementShape({
     window.addEventListener("pointerup", handleUp);
   };
 
+  const markings =
+    element.template && element.template !== "generic"
+      ? COURT_TEMPLATES[element.template].markings
+      : [];
+
   return (
     <g>
       <polygon
@@ -732,6 +829,29 @@ function FieldElementShape({
         strokeLinejoin="round"
         onPointerDown={(event) => startDrag(event, "move")}
       />
+      {markings.map((marking, i) => (
+        <polyline
+          key={i}
+          points={marking.points
+            .map(({ xM, yM }) => {
+              const p = rotatePoint(
+                center.x + xM / metersPerPixel,
+                center.y + yM / metersPerPixel,
+                center.x,
+                center.y,
+                element.rotationDeg,
+              );
+              return `${p.x},${p.y}`;
+            })
+            .join(" ")}
+          fill="none"
+          stroke="rgba(255,255,255,0.80)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="pointer-events-none"
+        />
+      ))}
       <polygon
         points={corners.map((point) => `${point.x},${point.y}`).join(" ")}
         fill="none"

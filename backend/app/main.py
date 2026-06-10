@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -194,8 +194,42 @@ def strava_activities(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except strava.StravaScopeError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except strava.StravaRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except strava.StravaError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/strava/webhook")
+def strava_webhook_verify(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+) -> dict:
+    """Strava webhook subscription verification (GET hub.challenge echo)."""
+    if hub_mode != "subscribe" or not hub_challenge:
+        raise HTTPException(status_code=400, detail="Invalid webhook verification request.")
+    expected = os.environ.get("STRAVA_WEBHOOK_VERIFY_TOKEN", "")
+    if not expected or hub_verify_token != expected:
+        raise HTTPException(status_code=403, detail="Invalid webhook verify token.")
+    return {"hub.challenge": hub_challenge}
+
+
+@app.post("/api/strava/webhook")
+async def strava_webhook_event(request: Request) -> dict:
+    """Strava webhook push events — handles athlete deauthorization."""
+    try:
+        event = await request.json()
+    except Exception:
+        return {"ok": True}
+    if (
+        isinstance(event, dict)
+        and event.get("aspect_type") == "update"
+        and isinstance(event.get("updates"), dict)
+        and event["updates"].get("authorized") == "false"
+    ):
+        strava.disconnect()
+    return {"ok": True}
 
 
 @app.post("/api/strava/disconnect")
@@ -261,6 +295,8 @@ async def import_strava_activity(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except strava.StravaScopeError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except strava.StravaRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except strava.StravaError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
