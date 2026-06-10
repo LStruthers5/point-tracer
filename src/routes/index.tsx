@@ -1,7 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { BarChart2, ChevronDown, Download, FileJson, Film, FolderOpen, List, Map, Maximize2, Pause, Pencil, Play, RotateCcw, Trash2, X } from "lucide-react";
+import {
+  AlertCircle,
+  BarChart2,
+  CheckCircle2,
+  ChevronDown,
+  Download,
+  FileJson,
+  Film,
+  FolderOpen,
+  List,
+  Loader2,
+  Map,
+  Maximize2,
+  Pause,
+  Pencil,
+  Play,
+  RotateCcw,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
 import { AnalyticsCards } from "@/components/AnalyticsCards";
@@ -31,15 +51,38 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Slider } from "@/components/ui/slider";
 import { useSegmentPlayback } from "@/hooks/use-segment-playback";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
+import {
+  MAP_LINE_COLORS,
+  type MapBasemapStyle,
+  type MapDisplayOptions,
+  type MapLineColor,
+  type MapTraceMode,
+  type MultiplayerParticipantDisplayOptions,
+} from "@/types/map-display";
 import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
-import type { SessionData, SessionPoint, SessionSegment } from "@/types/session";
+import type { MultiplayerSessionData, SessionData, SessionPoint, SessionSegment } from "@/types/session";
 import { formatDistance, formatDuration } from "@/lib/format";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
 const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
 const ACTIVITY_LIBRARY_STORAGE_KEY = "pointtracer.activityLibrary.v1";
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
+  "http://127.0.0.1:8000";
+const MULTIPLAYER_ENDPOINT = `${API_BASE}/api/upload/multiplayer`;
+const MULTIPLAYER_TRACE_MODES: Array<{ value: MapTraceMode; label: string }> = [
+  { value: "full", label: "Full trace" },
+  { value: "streak", label: "Streak" },
+  { value: "none", label: "No trace" },
+  { value: "heatmap", label: "Heatmap" },
+];
+const MULTIPLAYER_COLOR_OPTIONS: Array<{ value: MapLineColor; label: string }> = [
+  { value: "green", label: "Green" },
+  { value: "cyan", label: "Cyan" },
+  { value: "amber", label: "Amber" },
+  { value: "rose", label: "Rose" },
+];
 
 interface LocalActivityRecord {
   id: string;
@@ -53,6 +96,9 @@ interface LocalActivityRecord {
   manual_segment_ids: number[];
   map_display_options: MapDisplayOptions;
   map_elements: MapElement[];
+  multiplayer_session?: MultiplayerSessionData | null;
+  multiplayer_display_options?: Record<string, MultiplayerParticipantDisplayOptions>;
+  multiplayer_overlap_only?: boolean;
   original_session?: SessionData;
   session: SessionData;
 }
@@ -69,6 +115,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const [data, setData] = useState<SessionData | null>(null);
+  const [multiplayerSession, setMultiplayerSession] = useState<MultiplayerSessionData | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [hoveredSegmentId, setHoveredSegmentId] = useState<number | null>(null);
   const [showFullRoute, setShowFullRoute] = useState(true);
@@ -83,13 +130,32 @@ function Index() {
     loadActivityLibrary(),
   );
   const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
+  const [addPlayerLoading, setAddPlayerLoading] = useState(false);
+  const [addPlayerError, setAddPlayerError] = useState<string | null>(null);
+  const [addPlayerSuccess, setAddPlayerSuccess] = useState<string | null>(null);
+  const [multiplayerDisplayOptions, setMultiplayerDisplayOptions] = useState<
+    Record<string, MultiplayerParticipantDisplayOptions>
+  >({});
+  const [multiplayerOverlapOnly, setMultiplayerOverlapOnly] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const isMobile = useIsMobile();
   const [mobileTab, setMobileTab] = useState<"overview" | "map" | "segments">("map");
   const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
+  const multiplayerOverlapWindow = useMemo(
+    () =>
+      multiplayerSession
+        ? getMultiplayerOverlapWindow(multiplayerSession, multiplayerDisplayOptions)
+        : null,
+    [multiplayerDisplayOptions, multiplayerSession],
+  );
+  const activeMultiplayerWindow =
+    multiplayerSession && multiplayerOverlapOnly && multiplayerOverlapWindow
+      ? multiplayerOverlapWindow
+      : null;
   const effectiveBasemapStyle: MapBasemapStyle =
     selectedBasemapStyle ?? (settings.theme === "dark" ? "dark" : "street");
   const focusAnalyticsRef = useRef<HTMLDivElement | null>(null);
+  const addPlayerInputRef = useRef<HTMLInputElement | null>(null);
   const shouldScrollFocusAnalyticsRef = useRef(false);
 
   useEffect(() => {
@@ -113,6 +179,12 @@ function Index() {
 
     return () => window.clearTimeout(timeout);
   }, [showFullRoute, selectedSegmentId]);
+
+  useEffect(() => {
+    if (multiplayerOverlapOnly && !multiplayerOverlapWindow) {
+      setMultiplayerOverlapOnly(false);
+    }
+  }, [multiplayerOverlapOnly, multiplayerOverlapWindow]);
 
   useEffect(() => {
     if (!mapExpanded) return;
@@ -139,6 +211,9 @@ function Index() {
             manualSegmentIds,
             mapDisplayOptions,
             mapElements,
+            multiplayerSession,
+            multiplayerDisplayOptions,
+            multiplayerOverlapOnly,
           }),
         );
         persistActivityLibrary(next);
@@ -147,7 +222,16 @@ function Index() {
     }, 500);
 
     return () => window.clearTimeout(timeout);
-  }, [activeActivityId, data, manualSegmentIds, mapDisplayOptions, mapElements]);
+  }, [
+    activeActivityId,
+    data,
+    manualSegmentIds,
+    mapDisplayOptions,
+    mapElements,
+    multiplayerDisplayOptions,
+    multiplayerOverlapOnly,
+    multiplayerSession,
+  ]);
 
   const segments = data?.segments ?? EMPTY_SEGMENTS;
   const selectedSegment = segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
@@ -163,6 +247,12 @@ function Index() {
     settings.defaultPlaybackSpeed,
   );
   const effectiveSessionIdx = graphPreviewIdx ?? sessionPlayback.idx;
+  const multiplayerShellSecondsPerIdx =
+    multiplayerSession && data ? getShellSecondsPerIdx(data.points) : 1;
+  const effectiveMultiplayerElapsedSeconds =
+    multiplayerSession && activeMultiplayerWindow
+      ? activeMultiplayerWindow.startOffsetS + effectiveSessionIdx * multiplayerShellSecondsPerIdx
+      : effectiveSessionIdx * multiplayerShellSecondsPerIdx;
   const playheadSegment =
     segments.find(
       (segment) =>
@@ -185,6 +275,13 @@ function Index() {
       ? graphPreviewIdx - selectedSegment.start_idx
       : null;
 
+  useEffect(() => {
+    if (!multiplayerSession) return;
+    setData(buildSessionShellFromMultiplayer(multiplayerSession, activeMultiplayerWindow));
+    sessionPlayback.seek(0);
+    sessionPlayback.pause();
+  }, [activeMultiplayerWindow, multiplayerSession]);
+
   const updateMapDisplayOptions = (options: MapDisplayOptions) => {
     setSettings((current) => ({
       ...current,
@@ -195,7 +292,39 @@ function Index() {
     }));
   };
 
+  const updateMultiplayerDisplayOption = (
+    participantId: string,
+    patch: Partial<MultiplayerParticipantDisplayOptions>,
+  ) => {
+    setMultiplayerDisplayOptions((current) => {
+      const participant = multiplayerSession?.participants.find(
+        (candidate) => candidate.participant_id === participantId,
+      );
+      const existing =
+        current[participantId] ??
+        getDefaultMultiplayerDisplayOption(
+          participant?.label ?? "Player",
+          mapDisplayOptions,
+          multiplayerSession?.participants.findIndex(
+            (candidate) => candidate.participant_id === participantId,
+          ) ?? 0,
+        );
+      return {
+        ...current,
+        [participantId]: {
+          ...existing,
+          ...patch,
+        },
+      };
+    });
+  };
+
   const handleUploaded = (next: SessionData) => {
+    setMultiplayerSession(null);
+    setMultiplayerDisplayOptions({});
+    setMultiplayerOverlapOnly(false);
+    setAddPlayerError(null);
+    setAddPlayerSuccess(null);
     const id = `${slugify(next.activity_name)}-${Date.now()}`;
     const record = buildActivityRecord({
       data: next,
@@ -218,6 +347,63 @@ function Index() {
     setShowFullRoute(true);
     sessionPlayback.seek(0);
     sessionPlayback.pause();
+  };
+
+  const activateMultiplayerSession = (next: MultiplayerSessionData, options?: { resetMapElements?: boolean }) => {
+    setMultiplayerSession(next);
+    setMultiplayerDisplayOptions((current) =>
+      buildMultiplayerDisplayOptions(next, current, mapDisplayOptions),
+    );
+    setData(buildSessionShellFromMultiplayer(next));
+    setSelectedSegmentId(null);
+    setHoveredSegmentId(null);
+    setGraphPreviewIdx(null);
+    setManualSegmentIds(new Set());
+    if (options?.resetMapElements) setMapElements([]);
+    setShowFullRoute(true);
+    setMapExpanded(false);
+    sessionPlayback.seek(0);
+    sessionPlayback.pause();
+    playback.seek(0);
+    playback.pause();
+  };
+
+  const handleAddPlayerFile = async (file: File | null) => {
+    if (!data || !file) return;
+
+    setAddPlayerLoading(true);
+    setAddPlayerError(null);
+    setAddPlayerSuccess(null);
+    try {
+      const form = new FormData();
+      form.append("sport", data.sport || "unknown");
+      form.append("files", file);
+      form.append("participant_labels", labelFromFilename(file.name));
+      const existingSessionPayload = JSON.stringify(multiplayerSession ?? data);
+      form.append(
+        "existing_session_file",
+        new Blob([existingSessionPayload], { type: "application/json" }),
+        "existing-session.json",
+      );
+
+      const res = await fetch(MULTIPLAYER_ENDPOINT, { method: "POST", body: form });
+      if (!res.ok) {
+        throw new Error(await readResponseError(res, "Could not add player"));
+      }
+
+      const next = (await res.json()) as MultiplayerSessionData;
+      activateMultiplayerSession(next);
+      setAddPlayerSuccess(
+        participantsOverlapInTime(next)
+          ? `${next.participant_count} players synced`
+          : `${next.participant_count} players added — these activities don't overlap in time, so the replay spans each recording back to back.`,
+      );
+    } catch (error) {
+      setAddPlayerError(error instanceof Error ? error.message : "Could not add player");
+    } finally {
+      setAddPlayerLoading(false);
+      if (addPlayerInputRef.current) addPlayerInputRef.current.value = "";
+    }
   };
 
   const handleSelectSegment = (id: number) => {
@@ -437,6 +623,20 @@ function Index() {
   };
 
   const openLocalActivity = (record: LocalActivityRecord) => {
+    const savedMultiplayerSession = record.multiplayer_session ?? null;
+    setMultiplayerSession(savedMultiplayerSession);
+    setMultiplayerDisplayOptions(
+      savedMultiplayerSession
+        ? buildMultiplayerDisplayOptions(
+            savedMultiplayerSession,
+            record.multiplayer_display_options ?? {},
+            record.map_display_options,
+          )
+        : {},
+    );
+    setMultiplayerOverlapOnly(Boolean(savedMultiplayerSession && record.multiplayer_overlap_only));
+    setAddPlayerError(null);
+    setAddPlayerSuccess(null);
     setActiveActivityId(record.id);
     setData(record.session);
     setSelectedSegmentId(null);
@@ -487,6 +687,12 @@ function Index() {
               <UtilitySidebar
                 displayOptions={mapDisplayOptions}
                 onDisplayOptionsChange={updateMapDisplayOptions}
+                multiplayerSession={null}
+                multiplayerDisplayOptions={{}}
+                multiplayerOverlapOnly={false}
+                multiplayerOverlapAvailable={false}
+                onMultiplayerOverlapOnlyChange={() => undefined}
+                onUpdateMultiplayerParticipant={() => undefined}
                 records={activityLibrary}
                 activeId={activeActivityId}
                 onOpenActivity={openLocalActivity}
@@ -508,7 +714,10 @@ function Index() {
           </div>
         </header>
 
-        <UploadPanel onUploaded={handleUploaded} units={settings.units} />
+        <UploadPanel
+          onUploaded={handleUploaded}
+          units={settings.units}
+        />
 
         <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
           <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
@@ -527,6 +736,12 @@ function Index() {
               <UtilitySidebar
                 displayOptions={mapDisplayOptions}
                 onDisplayOptionsChange={updateMapDisplayOptions}
+                multiplayerSession={null}
+                multiplayerDisplayOptions={{}}
+                multiplayerOverlapOnly={false}
+                multiplayerOverlapAvailable={false}
+                onMultiplayerOverlapOnlyChange={() => undefined}
+                onUpdateMultiplayerParticipant={() => undefined}
                 records={activityLibrary}
                 activeId={activeActivityId}
                 onOpenActivity={openLocalActivity}
@@ -928,7 +1143,25 @@ function Index() {
         onRestoreOriginal={restoreOriginalActivity}
       />
 
-      <UploadPanel onUploaded={handleUploaded} units={settings.units} />
+      <UploadPanel
+        onUploaded={handleUploaded}
+        units={settings.units}
+      />
+
+      <AddPlayerBar
+        participantCount={multiplayerSession?.participant_count ?? 1}
+        loading={addPlayerLoading}
+        error={addPlayerError}
+        success={addPlayerSuccess}
+        onChooseFile={() => addPlayerInputRef.current?.click()}
+      />
+      <input
+        ref={addPlayerInputRef}
+        type="file"
+        accept=".gpx,.fit,application/gpx+xml"
+        className="hidden"
+        onChange={(event) => void handleAddPlayerFile(event.target.files?.[0] ?? null)}
+      />
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
         <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
@@ -944,6 +1177,12 @@ function Index() {
             <UtilitySidebar
               displayOptions={mapDisplayOptions}
               onDisplayOptionsChange={updateMapDisplayOptions}
+              multiplayerSession={multiplayerSession}
+              multiplayerDisplayOptions={multiplayerDisplayOptions}
+              multiplayerOverlapOnly={multiplayerOverlapOnly}
+              multiplayerOverlapAvailable={Boolean(multiplayerOverlapWindow)}
+              onMultiplayerOverlapOnlyChange={setMultiplayerOverlapOnly}
+              onUpdateMultiplayerParticipant={updateMultiplayerDisplayOption}
               records={activityLibrary}
               activeId={activeActivityId}
               onOpenActivity={openLocalActivity}
@@ -987,6 +1226,9 @@ function Index() {
                     basemapStyle={selectedBasemapStyle}
                     onBasemapStyleChange={setSelectedBasemapStyle}
                     sport={data.sport}
+                    multiplayerSession={multiplayerSession}
+                    multiplayerElapsedSeconds={multiplayerSession ? effectiveMultiplayerElapsedSeconds : null}
+                    multiplayerDisplayOptions={multiplayerDisplayOptions}
                   />
                 </div>
               </ResizablePanel>
@@ -1156,6 +1398,9 @@ function Index() {
               onMapElementsChange={setMapElements}
               basemapStyle={selectedBasemapStyle}
               onBasemapStyleChange={setSelectedBasemapStyle}
+              multiplayerSession={multiplayerSession}
+              multiplayerElapsedSeconds={multiplayerSession ? effectiveMultiplayerElapsedSeconds : null}
+              multiplayerDisplayOptions={multiplayerDisplayOptions}
             />
 
             <ExpandedMapPlaybackControls
@@ -1195,6 +1440,12 @@ function GpsLogo() {
 function UtilitySidebar({
   displayOptions,
   onDisplayOptionsChange,
+  multiplayerSession,
+  multiplayerDisplayOptions,
+  multiplayerOverlapOnly,
+  multiplayerOverlapAvailable,
+  onMultiplayerOverlapOnlyChange,
+  onUpdateMultiplayerParticipant,
   records,
   activeId,
   onOpenActivity,
@@ -1202,6 +1453,15 @@ function UtilitySidebar({
 }: {
   displayOptions: MapDisplayOptions;
   onDisplayOptionsChange: (options: MapDisplayOptions) => void;
+  multiplayerSession: MultiplayerSessionData | null;
+  multiplayerDisplayOptions: Record<string, MultiplayerParticipantDisplayOptions>;
+  multiplayerOverlapOnly: boolean;
+  multiplayerOverlapAvailable: boolean;
+  onMultiplayerOverlapOnlyChange: (enabled: boolean) => void;
+  onUpdateMultiplayerParticipant: (
+    participantId: string,
+    patch: Partial<MultiplayerParticipantDisplayOptions>,
+  ) => void;
   records: LocalActivityRecord[];
   activeId: string | null;
   onOpenActivity: (record: LocalActivityRecord) => void;
@@ -1215,7 +1475,21 @@ function UtilitySidebar({
         icon={<Map className="h-3.5 w-3.5" />}
         defaultOpen
       >
-        <MapDisplayControls displayOptions={displayOptions} onChange={onDisplayOptionsChange} />
+        <MapDisplayControls
+          displayOptions={displayOptions}
+          onChange={onDisplayOptionsChange}
+          multiplayerMode={Boolean(multiplayerSession)}
+        />
+        {multiplayerSession ? (
+          <MultiplayerParticipantControls
+            multiplayerSession={multiplayerSession}
+            displayOptions={multiplayerDisplayOptions}
+            overlapOnly={multiplayerOverlapOnly}
+            overlapAvailable={multiplayerOverlapAvailable}
+            onOverlapOnlyChange={onMultiplayerOverlapOnlyChange}
+            onUpdateParticipant={onUpdateMultiplayerParticipant}
+          />
+        ) : null}
       </UtilitySection>
 
       <UtilitySection
@@ -1231,6 +1505,205 @@ function UtilitySidebar({
           onDelete={onDeleteActivity}
         />
       </UtilitySection>
+    </div>
+  );
+}
+
+function AddPlayerBar({
+  participantCount,
+  loading,
+  error,
+  success,
+  onChooseFile,
+}: {
+  participantCount: number;
+  loading: boolean;
+  error: string | null;
+  success: string | null;
+  onChooseFile: () => void;
+}) {
+  return (
+    <div className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border/40 bg-card/20 px-3 py-1.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 gap-1.5 text-xs"
+        onClick={onChooseFile}
+        disabled={loading}
+        title="Add another timed activity to this shared replay"
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <UserPlus className="h-3.5 w-3.5" />
+        )}
+        Add player
+      </Button>
+      <span className="text-[11px] text-muted-foreground">
+        {participantCount > 1
+          ? `${participantCount} players on shared timeline`
+          : "Add another activity to create multiplayer replay."}
+      </span>
+      {success ? (
+        <span className="flex items-center gap-1.5 text-[11px] text-primary">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {success}
+        </span>
+      ) : null}
+      {error ? (
+        <span className="flex items-center gap-1.5 text-[11px] text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function MultiplayerParticipantControls({
+  multiplayerSession,
+  displayOptions,
+  overlapOnly,
+  overlapAvailable,
+  onOverlapOnlyChange,
+  onUpdateParticipant,
+}: {
+  multiplayerSession: MultiplayerSessionData;
+  displayOptions: Record<string, MultiplayerParticipantDisplayOptions>;
+  overlapOnly: boolean;
+  overlapAvailable: boolean;
+  onOverlapOnlyChange: (enabled: boolean) => void;
+  onUpdateParticipant: (
+    participantId: string,
+    patch: Partial<MultiplayerParticipantDisplayOptions>,
+  ) => void;
+}) {
+  return (
+    <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Players
+        </div>
+        <div className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+          Player color identifies them; line mode and gradients above apply globally.
+        </div>
+      </div>
+      <label className="flex items-start gap-2 rounded-xl border border-border/45 bg-background/45 px-2.5 py-2 text-[10px] text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={overlapOnly}
+          disabled={!overlapAvailable}
+          onChange={(event) => onOverlapOnlyChange(event.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-primary disabled:opacity-50"
+        />
+        <span>
+          <span className="block font-semibold text-foreground">Show only overlapping data</span>
+          <span className="block leading-snug">
+            {overlapAvailable
+              ? "Playback focuses on the window where visible players all have activity."
+              : "No shared active window is available for the visible players."}
+          </span>
+        </span>
+      </label>
+      <div className="space-y-2">
+        {multiplayerSession.participants.map((participant, index) => {
+            const options =
+              displayOptions[participant.participant_id] ??
+              getDefaultMultiplayerDisplayOption(participant.label, {
+                traceMode: "streak",
+                lineColor: "green",
+              }, index);
+            const color = MAP_LINE_COLORS[options.lineColor];
+            return (
+              <div
+                key={participant.participant_id}
+                className="rounded-xl border border-border/50 bg-background/45 p-2"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`h-4 w-4 rounded-full border-2 ${
+                      options.visible ? "border-white/90" : "border-muted-foreground/40 opacity-40"
+                    }`}
+                    style={{ backgroundColor: color }}
+                    onClick={() =>
+                      onUpdateParticipant(participant.participant_id, {
+                        visible: !options.visible,
+                      })
+                    }
+                    title={options.visible ? "Hide player" : "Show player"}
+                  />
+                  <input
+                    value={options.label}
+                    onChange={(event) =>
+                      onUpdateParticipant(participant.participant_id, {
+                        label: event.target.value,
+                      })
+                    }
+                    className="min-w-0 flex-1 rounded-md border border-border/50 bg-card/60 px-2 py-1 text-xs font-semibold text-foreground outline-none transition focus:border-primary"
+                    aria-label={`Rename ${participant.label}`}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <label className="space-y-1">
+                    <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Display
+                    </span>
+                    <select
+                      value={options.traceMode}
+                      onChange={(event) =>
+                        onUpdateParticipant(participant.participant_id, {
+                          traceMode: event.target.value as MapTraceMode,
+                        })
+                      }
+                      className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
+                    >
+                      {MULTIPLAYER_TRACE_MODES.map((mode) => (
+                        <option key={mode.value} value={mode.value}>
+                          {mode.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Color
+                    </span>
+                    <select
+                      value={options.lineColor}
+                      onChange={(event) =>
+                        onUpdateParticipant(participant.participant_id, {
+                          lineColor: event.target.value as MapLineColor,
+                        })
+                      }
+                      className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
+                    >
+                      {MULTIPLAYER_COLOR_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={options.showLabel}
+                    onChange={(event) =>
+                      onUpdateParticipant(participant.participant_id, {
+                        showLabel: event.target.checked,
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Show label
+                </label>
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }
@@ -1993,6 +2466,9 @@ function buildActivityRecord({
   manualSegmentIds,
   mapDisplayOptions,
   mapElements,
+  multiplayerSession,
+  multiplayerDisplayOptions,
+  multiplayerOverlapOnly,
 }: {
   data: SessionData;
   id: string;
@@ -2000,6 +2476,9 @@ function buildActivityRecord({
   manualSegmentIds: Set<number>;
   mapDisplayOptions: MapDisplayOptions;
   mapElements: MapElement[];
+  multiplayerSession?: MultiplayerSessionData | null;
+  multiplayerDisplayOptions?: Record<string, MultiplayerParticipantDisplayOptions>;
+  multiplayerOverlapOnly?: boolean;
 }): LocalActivityRecord {
   const now = new Date().toISOString();
   const originalSession = existing?.original_session ?? data;
@@ -2021,6 +2500,9 @@ function buildActivityRecord({
     manual_segment_ids: [...manualSegmentIds],
     map_display_options: mapDisplayOptions,
     map_elements: mapElements,
+    multiplayer_session: multiplayerSession ?? null,
+    multiplayer_display_options: multiplayerDisplayOptions ?? {},
+    multiplayer_overlap_only: Boolean(multiplayerSession && multiplayerOverlapOnly),
     original_session: originalSession,
     session: data,
   };
@@ -2069,6 +2551,9 @@ function normalizeActivityRecord(value: unknown): unknown {
     uploaded_at: record.uploaded_at ?? record.saved_at ?? new Date().toISOString(),
     updated_at: record.updated_at ?? record.saved_at ?? new Date().toISOString(),
     map_elements: record.map_elements ?? [],
+    multiplayer_session: record.multiplayer_session ?? null,
+    multiplayer_display_options: record.multiplayer_display_options ?? {},
+    multiplayer_overlap_only: Boolean(record.multiplayer_overlap_only),
   };
 }
 
@@ -2138,6 +2623,138 @@ function mapDisplayOptionsToLineColorMode(options: MapDisplayOptions): LineColor
   return options.gradientMode === "single" ? "single-gradient" : "multi-gradient";
 }
 
+function buildMultiplayerDisplayOptions(
+  multiplayer: MultiplayerSessionData,
+  current: Record<string, MultiplayerParticipantDisplayOptions>,
+  defaults: MapDisplayOptions,
+) {
+  return Object.fromEntries(
+    multiplayer.participants.map((participant, index) => [
+      participant.participant_id,
+      current[participant.participant_id] ??
+        getDefaultMultiplayerDisplayOption(participant.label, defaults, index),
+    ]),
+  );
+}
+
+function getDefaultMultiplayerDisplayOption(
+  label: string,
+  defaults: Pick<MapDisplayOptions, "traceMode" | "lineColor">,
+  index: number,
+): MultiplayerParticipantDisplayOptions {
+  return {
+    visible: true,
+    label,
+    showLabel: true,
+    traceMode: defaults.traceMode,
+    lineColor: MULTIPLAYER_COLOR_OPTIONS[index % MULTIPLAYER_COLOR_OPTIONS.length].value,
+  };
+}
+
+interface MultiplayerPlaybackWindow {
+  startTime: string;
+  endTime: string;
+  startOffsetS: number;
+  durationS: number;
+}
+
+// 4 h at one point per second; longer timelines get a coarser shell step.
+const MAX_MULTIPLAYER_SHELL_POINTS = 14_400;
+
+function getShellSecondsPerIdx(points: SessionPoint[]): number {
+  if (points.length < 2) return 1;
+  const stepMs = Date.parse(points[1].t) - Date.parse(points[0].t);
+  return Number.isFinite(stepMs) && stepMs > 0 ? stepMs / 1000 : 1;
+}
+
+function participantsOverlapInTime(multiplayer: MultiplayerSessionData): boolean {
+  const startMs = Math.max(
+    ...multiplayer.participants.map((participant) => Date.parse(participant.summary.start_time)),
+  );
+  const endMs = Math.min(
+    ...multiplayer.participants.map((participant) => Date.parse(participant.summary.end_time)),
+  );
+  return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs;
+}
+
+function getMultiplayerOverlapWindow(
+  multiplayer: MultiplayerSessionData,
+  displayOptions: Record<string, MultiplayerParticipantDisplayOptions>,
+): MultiplayerPlaybackWindow | null {
+  const visibleParticipants = multiplayer.participants.filter(
+    (participant) => displayOptions[participant.participant_id]?.visible ?? true,
+  );
+  if (visibleParticipants.length < 2) return null;
+
+  const playbackStartMs = Date.parse(multiplayer.playback.start_time);
+  const startMs = Math.max(
+    ...visibleParticipants.map((participant) => Date.parse(participant.summary.start_time)),
+  );
+  const endMs = Math.min(
+    ...visibleParticipants.map((participant) => Date.parse(participant.summary.end_time)),
+  );
+
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+
+  return {
+    startTime: new Date(startMs).toISOString(),
+    endTime: new Date(endMs).toISOString(),
+    startOffsetS: Math.max(0, (startMs - playbackStartMs) / 1000),
+    durationS: Math.max(1, Math.ceil((endMs - startMs) / 1000)),
+  };
+}
+
+function buildSessionShellFromMultiplayer(
+  multiplayer: MultiplayerSessionData,
+  playbackWindow: MultiplayerPlaybackWindow | null = null,
+): SessionData {
+  const startMs = new Date(playbackWindow?.startTime ?? multiplayer.playback.start_time).getTime();
+  const durationS = playbackWindow?.durationS ?? Math.max(1, Math.ceil(multiplayer.playback.duration_s));
+  const origin = multiplayer.summary.origin;
+  // Non-overlapping activities can span days; cap the synthetic timeline so we
+  // never allocate millions of shell points. The playhead-to-seconds mapping
+  // derives the step from these timestamps (see getShellSecondsPerIdx).
+  const stepS = Math.max(1, Math.ceil(durationS / MAX_MULTIPLAYER_SHELL_POINTS));
+  const pointCount = Math.floor(durationS / stepS) + 1;
+  const points: SessionPoint[] = Array.from({ length: pointCount }, (_, idx) => ({
+    lat: origin.lat,
+    lon: origin.lon,
+    x_m: 0,
+    y_m: 0,
+    t: new Date(startMs + idx * stepS * 1000).toISOString(),
+    speed_mps: 0,
+    speed_smooth_mps: 0,
+  }));
+  const sourceFile = multiplayer.participants
+    .map((participant) => participant.source_file)
+    .join(" + ");
+
+  return {
+    activity_name: "Multiplayer session",
+    source_file: sourceFile,
+    sport: multiplayer.sport,
+    summary: {
+      start_time: playbackWindow?.startTime ?? multiplayer.summary.start_time,
+      end_time: playbackWindow?.endTime ?? multiplayer.summary.end_time,
+      duration_min: durationS / 60,
+      trackpoint_count: multiplayer.summary.trackpoint_count,
+      distance_m: multiplayer.participants.reduce(
+        (total, participant) => total + participant.summary.distance_m,
+        0,
+      ),
+      bbox: multiplayer.summary.bbox,
+      heart_rate_stats: null,
+      recovery_summary: undefined,
+    },
+    segmentation_method: {
+      type: "multiplayer",
+      notes: "Shared timestamp replay across multiple uploaded activities.",
+    },
+    segments: [],
+    points,
+  };
+}
+
 function slugify(value: string) {
   return (
     value
@@ -2146,4 +2763,30 @@ function slugify(value: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "activity"
   );
+}
+
+function labelFromFilename(filename: string) {
+  return (
+    filename
+      .replace(/\.(gpx|fit)$/i, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() || "Player"
+  );
+}
+
+async function readResponseError(response: Response, fallback: string) {
+  const text = await response.text().catch(() => "");
+  if (!text) return `${fallback} (${response.status})`;
+
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed.detail === "string") {
+      return `${fallback} (${response.status}): ${parsed.detail}`;
+    }
+  } catch {
+    // Use raw response text below.
+  }
+
+  return `${fallback} (${response.status}): ${text}`;
 }

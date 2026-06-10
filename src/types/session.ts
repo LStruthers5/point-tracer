@@ -82,3 +82,52 @@ export interface SessionData {
   segments: SessionSegment[];
   points: SessionPoint[];
 }
+
+export interface MultiplayerParticipantSummary {
+  start_time: string;
+  end_time: string;
+  duration_s: number;
+  time_offset_s: number;
+  trackpoint_count: number;
+  distance_m: number;
+  bbox: SegmentBbox;
+}
+
+export interface MultiplayerParticipant {
+  participant_id: string;
+  label: string;
+  source_file: string;
+  sport: string;
+  summary: MultiplayerParticipantSummary;
+  points: SessionPoint[];
+}
+
+export interface MultiplayerSessionSummary {
+  start_time: string;
+  end_time: string;
+  duration_s: number;
+  duration_min: number;
+  trackpoint_count: number;
+  bbox: SegmentBbox;
+  origin: {
+    lat: number;
+    lon: number;
+  };
+}
+
+export interface MultiplayerPlaybackMetadata {
+  clock: "shared_timestamp";
+  start_time: string;
+  end_time: string;
+  duration_s: number;
+  position_strategy: "interpolate_between_neighboring_points";
+}
+
+export interface MultiplayerSessionData {
+  session_type: "multiplayer";
+  sport: string;
+  participant_count: number;
+  summary: MultiplayerSessionSummary;
+  playback: MultiplayerPlaybackMetadata;
+  participants: MultiplayerParticipant[];
+}

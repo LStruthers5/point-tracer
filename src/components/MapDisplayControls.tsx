@@ -17,25 +17,32 @@ import {
 interface MapDisplayControlsProps {
   displayOptions: MapDisplayOptions;
   onChange: (options: MapDisplayOptions) => void;
+  multiplayerMode?: boolean;
 }
 
-export function MapDisplayControls({ displayOptions, onChange }: MapDisplayControlsProps) {
+export function MapDisplayControls({
+  displayOptions,
+  onChange,
+  multiplayerMode = false,
+}: MapDisplayControlsProps) {
   return (
     <div className="space-y-2">
-      <OptionSelect
-        label="Trace"
-        value={displayOptions.traceMode}
-        onValueChange={(traceMode) =>
-          onChange({ ...displayOptions, traceMode: traceMode as MapTraceMode })
-        }
-        items={[
-          { value: "full", label: "Full trace" },
-          { value: "streak", label: "Streak" },
-          { value: "none", label: "No trace" },
-          { value: "heatmap", label: "Heatmap" },
-        ]}
-      />
-      {displayOptions.traceMode === "heatmap" ? (
+      {!multiplayerMode ? (
+        <OptionSelect
+          label="Trace"
+          value={displayOptions.traceMode}
+          onValueChange={(traceMode) =>
+            onChange({ ...displayOptions, traceMode: traceMode as MapTraceMode })
+          }
+          items={[
+            { value: "full", label: "Full trace" },
+            { value: "streak", label: "Streak" },
+            { value: "none", label: "No trace" },
+            { value: "heatmap", label: "Heatmap" },
+          ]}
+        />
+      ) : null}
+      {displayOptions.traceMode === "heatmap" || multiplayerMode ? (
         <OptionSelect
           label="Heatmap"
           value={displayOptions.heatmapMode}
@@ -51,20 +58,22 @@ export function MapDisplayControls({ displayOptions, onChange }: MapDisplayContr
           ]}
         />
       ) : null}
-      <OptionSelect
-        label="Color"
-        value={displayOptions.lineColor}
-        onValueChange={(lineColor) =>
-          onChange({ ...displayOptions, lineColor: lineColor as MapLineColor })
-        }
-        items={[
-          { value: "green", label: "Green" },
-          { value: "cyan", label: "Cyan" },
-          { value: "amber", label: "Amber" },
-          { value: "rose", label: "Rose" },
-        ]}
-      />
-      {displayOptions.traceMode !== "heatmap" ? (
+      {!multiplayerMode ? (
+        <OptionSelect
+          label="Color"
+          value={displayOptions.lineColor}
+          onValueChange={(lineColor) =>
+            onChange({ ...displayOptions, lineColor: lineColor as MapLineColor })
+          }
+          items={[
+            { value: "green", label: "Green" },
+            { value: "cyan", label: "Cyan" },
+            { value: "amber", label: "Amber" },
+            { value: "rose", label: "Rose" },
+          ]}
+        />
+      ) : null}
+      {displayOptions.traceMode !== "heatmap" || multiplayerMode ? (
         <>
           <OptionSelect
             label="Line mode"

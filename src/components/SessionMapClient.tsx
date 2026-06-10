@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Crosshair, Map as MapIcon, Pin, Plus, X } from "lucide-react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import type { SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
-import type { MapBasemapStyle, MapDisplayOptions, MapLineColor } from "@/types/map-display";
+import type { MultiplayerSessionData, SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
+import type {
+  MapBasemapStyle,
+  MapDisplayOptions,
+  MapLineColor,
+  MapTraceMode,
+  MultiplayerParticipantDisplayOptions,
+} from "@/types/map-display";
 import type { CourtTemplate, FieldMapElement, MapElement, MapElementType, PinMapElement } from "@/types/map-elements";
 import { COURT_TEMPLATES } from "@/lib/court-templates";
 import {
@@ -14,6 +20,7 @@ import {
 } from "@/types/map-display";
 import type { ThemeMode, UnitSystem } from "@/types/app-settings";
 import { formatSpeed } from "@/lib/format";
+import { getMultiplayerPlaybackSnapshot } from "@/lib/multiplayer-playback";
 
 const DEFAULT_ZOOM = 17;
 const SESSION_FIT_MAX_ZOOM = 18;
@@ -80,6 +87,9 @@ interface SessionMapClientProps {
   basemapStyle: MapBasemapStyle | null;
   onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
   sport?: string;
+  multiplayerSession?: MultiplayerSessionData | null;
+  multiplayerElapsedSeconds?: number | null;
+  multiplayerDisplayOptions?: Record<string, MultiplayerParticipantDisplayOptions>;
 }
 
 function FitBounds({ bbox, focused }: { bbox: SegmentBbox; focused: boolean }) {
@@ -120,6 +130,9 @@ export function SessionMapClient({
   basemapStyle: selectedBasemapStyle,
   onBasemapStyleChange,
   sport,
+  multiplayerSession = null,
+  multiplayerElapsedSeconds = null,
+  multiplayerDisplayOptions = {},
 }: SessionMapClientProps) {
   const themedBasemapStyle = theme === "dark" ? "dark" : "street";
   const [elementPickerOpen, setElementPickerOpen] = useState(false);
@@ -130,12 +143,20 @@ export function SessionMapClient({
   const basemapStyle = selectedBasemapStyle ?? themedBasemapStyle;
   const selectedMapElement = mapElements.find((element) => element.id === selectedMapElementId);
 
+  const multiplayerPoints = useMemo(
+    () => multiplayerSession?.participants.flatMap((participant) => participant.points) ?? [],
+    [multiplayerSession],
+  );
   const segmentedPoints = useMemo(
     () => getSegmentedPoints(points, segments),
     [points, segments],
   );
   const mapDataPoints =
-    onlySegmentedActivity && segmentedPoints.length > 0 ? segmentedPoints : points;
+    multiplayerPoints.length > 0
+      ? multiplayerPoints
+      : onlySegmentedActivity && segmentedPoints.length > 0
+        ? segmentedPoints
+        : points;
   const fullRoute = mapDataPoints.map((p) => [p.lat, p.lon] as [number, number]);
   const lineColor = MAP_LINE_COLORS[displayOptions.lineColor];
   const basemap = BASEMAPS[basemapStyle];
@@ -164,8 +185,14 @@ export function SessionMapClient({
         : null;
   const playbackTrail = playbackTrailPoints?.map((p) => [p.lat, p.lon] as [number, number]) ?? null;
 
-  const playbackPoint =
-    showFullRoute && sessionPlaybackIdx != null
+  const multiplayerSnapshot =
+    multiplayerSession && multiplayerElapsedSeconds != null
+      ? getMultiplayerPlaybackSnapshot(multiplayerSession, multiplayerElapsedSeconds)
+      : null;
+
+  const playbackPoint = multiplayerSnapshot
+    ? null
+    : showFullRoute && sessionPlaybackIdx != null
       ? points[sessionPlaybackIdx]
       : selectedSeg && playbackIdx != null
         ? points[selectedSeg.start_idx + playbackIdx]
@@ -178,7 +205,7 @@ export function SessionMapClient({
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
       <MapContainer
-        center={[points[0]?.lat ?? 0, points[0]?.lon ?? 0]}
+        center={[mapDataPoints[0]?.lat ?? 0, mapDataPoints[0]?.lon ?? 0]}
         zoom={DEFAULT_ZOOM}
         maxZoom={MAP_MAX_ZOOM}
         className="h-full w-full"
@@ -231,7 +258,17 @@ export function SessionMapClient({
           />
         ) : null}
 
-        {showFullRoute && routeMode.showFullRoute && displayOptions.colorMode === "speed" ? (
+        {multiplayerSession ? (
+          <MultiplayerReplayOverlay
+            session={multiplayerSession}
+            elapsedSeconds={multiplayerElapsedSeconds ?? 0}
+            defaultTraceMode={displayOptions.traceMode}
+            displayOptions={displayOptions}
+            heatmapMode={displayOptions.heatmapMode}
+            theme={theme}
+            participantDisplayOptions={multiplayerDisplayOptions}
+          />
+        ) : showFullRoute && routeMode.showFullRoute && displayOptions.colorMode === "speed" ? (
           <SpeedGradientRoute
             points={mapDataPoints}
             weight={2}
@@ -422,6 +459,139 @@ function getSegmentedPoints(points: SessionPoint[], segments: SessionSegment[]) 
   }
 
   return points.filter((_, index) => included.has(index));
+}
+
+const MULTIPLAYER_COLORS: MapLineColor[] = ["cyan", "amber", "rose", "green"];
+
+function MultiplayerReplayOverlay({
+  session,
+  elapsedSeconds,
+  defaultTraceMode,
+  displayOptions,
+  heatmapMode,
+  theme,
+  participantDisplayOptions,
+}: {
+  session: MultiplayerSessionData;
+  elapsedSeconds: number;
+  defaultTraceMode: MapTraceMode;
+  displayOptions: MapDisplayOptions;
+  heatmapMode: MapDisplayOptions["heatmapMode"];
+  theme: ThemeMode;
+  participantDisplayOptions: Record<string, MultiplayerParticipantDisplayOptions>;
+}) {
+  const snapshot = getMultiplayerPlaybackSnapshot(session, elapsedSeconds);
+
+  return (
+    <>
+      {session.participants.map((participant, index) => {
+        const options = participantDisplayOptions[participant.participant_id];
+        const lineColor = options?.lineColor ?? MULTIPLAYER_COLORS[index % MULTIPLAYER_COLORS.length];
+        const color = MAP_LINE_COLORS[lineColor];
+        const traceMode = options?.traceMode ?? defaultTraceMode;
+        const label = options?.label?.trim() || participant.label;
+        const showLabel = options?.showLabel ?? true;
+        const isVisible = options?.visible ?? true;
+        if (!isVisible) return null;
+
+        const current = snapshot.participants.find(
+          (state) => state.participantId === participant.participant_id,
+        );
+        const activePoint = current?.point;
+        const previousIdx = current?.previousIdx ?? null;
+        const showHeatmap = traceMode === "heatmap";
+        const isEdgePaused = current?.status === "before_start" || current?.status === "after_end";
+        const isInternalGap = current?.status === "gap";
+        const showRouteContext = traceMode !== "none" && !showHeatmap && !isEdgePaused && !isInternalGap;
+        const showFullContext = traceMode === "full";
+        const showStreak = traceMode === "streak";
+        const routePoints =
+          showRouteContext && participant.points.length >= 2
+            ? getMultiplayerRoutePoints(participant.points, previousIdx, showFullContext, showStreak)
+            : [];
+
+        return (
+          <Pane key={participant.participant_id} name={`multiplayer-${participant.participant_id}`} style={{ zIndex: 680 + index }}>
+            {showHeatmap ? (
+              <HeatmapCanvas
+                points={participant.points}
+                mode={heatmapMode}
+                lineColor={lineColor}
+                theme={theme}
+              />
+            ) : null}
+            {routePoints.length >= 2 ? (
+              displayOptions.colorMode === "speed" ? (
+                <SpeedGradientRoute
+                  points={routePoints}
+                  weight={showStreak ? 4 : 2.2}
+                  opacity={showStreak ? 0.95 : 0.32}
+                  displayOptions={{ ...displayOptions, lineColor }}
+                />
+              ) : (
+                <Polyline
+                  positions={routePoints.map((point) => [point.lat, point.lon] as [number, number])}
+                  pathOptions={{
+                    color,
+                    weight: showStreak ? 4 : 2.2,
+                    opacity: showStreak ? 0.95 : 0.32,
+                  }}
+                />
+              )
+            ) : null}
+            {activePoint ? (
+              <>
+                <CircleMarker
+                  center={[activePoint.lat, activePoint.lon]}
+                  radius={8}
+                  pathOptions={{
+                    color: "#ffffff",
+                    weight: 3,
+                    fillColor: color,
+                    fillOpacity: isEdgePaused ? 0.58 : 1,
+                    opacity: isEdgePaused ? 0.72 : 1,
+                  }}
+                >
+                  {showLabel ? (
+                    <Tooltip permanent direction="top" offset={[0, -10]} opacity={0.95}>
+                      <span className="text-[10px] font-semibold">{label}</span>
+                    </Tooltip>
+                  ) : null}
+                </CircleMarker>
+                <CircleMarker
+                  center={[activePoint.lat, activePoint.lon]}
+                  radius={13}
+                  pathOptions={{
+                    color,
+                    weight: 1.6,
+                    fillOpacity: 0,
+                    opacity: isEdgePaused ? 0.2 : current.status === "interpolated" ? 0.55 : 0.35,
+                  }}
+                />
+              </>
+            ) : null}
+          </Pane>
+        );
+      })}
+    </>
+  );
+}
+
+function getMultiplayerRoutePoints(
+  points: SessionPoint[],
+  previousIdx: number | null,
+  showFullContext: boolean,
+  showStreak: boolean,
+) {
+  if (showFullContext || previousIdx == null) {
+    return points;
+  }
+
+  if (!showStreak) {
+    return points.slice(0, previousIdx + 1);
+  }
+
+  return points.slice(Math.max(0, previousIdx - STREAK_POINTS + 1), previousIdx + 1);
 }
 
 const MAP_ELEMENT_LABELS: Record<MapElementType, string> = {

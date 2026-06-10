@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -8,6 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.services.segmenter import ResetArea, segment_activity_bytes
+from app.services.multiplayer import (
+    build_multiplayer_session_from_sources,
+    multiplayer_sources_from_session,
+    parse_activity_points,
+)
 from app.services import strava
 
 
@@ -51,6 +57,56 @@ app.add_middleware(
 
 ALLOWED_EXTENSIONS = {".gpx", ".fit"}
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_EXISTING_SESSION_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+async def read_existing_multiplayer_sources(
+    existing_session_json: str | None,
+    existing_session_file: UploadFile | None,
+) -> list[dict]:
+    payload: str | None = existing_session_json
+
+    if existing_session_file is not None:
+        try:
+            payload_bytes = await existing_session_file.read()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Failed to read existing session payload.") from exc
+
+        if not payload_bytes:
+            raise HTTPException(status_code=400, detail="Existing session payload is empty.")
+
+        if len(payload_bytes) > MAX_EXISTING_SESSION_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Existing session payload is too large. "
+                    f"Max size is {MAX_EXISTING_SESSION_BYTES // (1024 * 1024)} MB."
+                ),
+            )
+
+        try:
+            payload = payload_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Existing session payload must be UTF-8 JSON.",
+            ) from exc
+
+    if not payload:
+        return []
+
+    try:
+        existing_session = json.loads(payload)
+        if not isinstance(existing_session, dict):
+            raise ValueError("Existing session payload must be an object.")
+        return multiplayer_sources_from_session(existing_session)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Existing session payload must be valid JSON.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/health")
@@ -148,6 +204,84 @@ async def upload_gpx(
         raise HTTPException(
             status_code=500,
             detail="Unexpected error while processing activity file.",
+        ) from exc
+
+
+@app.post("/api/upload/multiplayer")
+async def upload_multiplayer(
+    files: list[UploadFile] = File(...),
+    sport: str = Form(default="unknown"),
+    participant_labels: list[str] | None = Form(default=None),
+    existing_session_json: str | None = Form(default=None),
+    existing_session_file: UploadFile | None = File(default=None),
+) -> dict:
+    existing_sources = await read_existing_multiplayer_sources(
+        existing_session_json,
+        existing_session_file,
+    )
+
+    total_participants = len(existing_sources) + len(files)
+    if total_participants < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Add one .gpx or .fit file to the loaded session, or upload at least two files.",
+        )
+    if total_participants > 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Multiplayer replay currently supports up to 8 participants.",
+        )
+
+    normalized_sport = sport.strip().lower() or "unknown"
+    sources = list(existing_sources)
+
+    for index, file in enumerate(files):
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Every uploaded file must have a filename.")
+
+        extension = Path(file.filename).suffix.lower()
+        if extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{extension}'. Only .gpx and .fit are supported right now.",
+            )
+
+        try:
+            file_bytes = await file.read()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to read {file.filename}.") from exc
+
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail=f"{file.filename} is empty.")
+
+        if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{file.filename} is too large. Max size is {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.",
+            )
+
+        label = participant_labels[index] if participant_labels and index < len(participant_labels) else None
+        try:
+            raw_points = parse_activity_points(file_bytes, file.filename)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        sources.append(
+            {
+                "label": label.strip() if label and label.strip() else None,
+                "source_file": file.filename,
+                "raw_points": raw_points,
+            }
+        )
+
+    try:
+        return build_multiplayer_session_from_sources(sources, sport=normalized_sport)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Unexpected error while processing multiplayer activity files.",
         ) from exc
 
 
