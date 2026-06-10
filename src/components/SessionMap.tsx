@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import type { SessionPoint, SessionSegment } from "@/types/session";
-import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
+import type { MultiplayerSessionData, SessionPoint, SessionSegment } from "@/types/session";
+import type {
+  MapBasemapStyle,
+  MapDisplayOptions,
+  MultiplayerParticipantDisplayOptions,
+} from "@/types/map-display";
 import type { MapElement } from "@/types/map-elements";
 import type { ThemeMode, UnitSystem } from "@/types/app-settings";
 
@@ -22,6 +26,9 @@ interface SessionMapProps {
   onMapElementsChange: (elements: MapElement[]) => void;
   basemapStyle: MapBasemapStyle | null;
   onBasemapStyleChange: (style: MapBasemapStyle | null) => void;
+  multiplayerSession?: MultiplayerSessionData | null;
+  multiplayerElapsedSeconds?: number | null;
+  multiplayerDisplayOptions?: Record<string, MultiplayerParticipantDisplayOptions>;
 }
 
 type SessionMapClientComponent = React.ComponentType<SessionMapProps>;
