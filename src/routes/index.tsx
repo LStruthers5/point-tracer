@@ -775,7 +775,7 @@ function Index() {
 
           {/* Map tab */}
           {mobileTab === "map" && (
-            <div className="h-full p-3">
+            <div className="relative h-full p-3">
               <SessionMap
                 points={data.points}
                 segments={data.segments}
@@ -796,6 +796,24 @@ function Index() {
                 onBasemapStyleChange={setSelectedBasemapStyle}
                 sport={data.sport}
               />
+              {/* Floating play/pause */}
+              <button
+                type="button"
+                onClick={() => {
+                  const pb = showFullRoute ? sessionPlayback : playback;
+                  pb.playing ? pb.pause() : pb.play();
+                }}
+                className="absolute bottom-5 left-1/2 z-[950] -translate-x-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition active:scale-95 pulse-glow"
+                aria-label={
+                  (showFullRoute ? sessionPlayback.playing : playback.playing) ? "Pause" : "Play"
+                }
+              >
+                {(showFullRoute ? sessionPlayback.playing : playback.playing) ? (
+                  <Pause className="h-5 w-5" />
+                ) : (
+                  <Play className="h-5 w-5 translate-x-0.5" />
+                )}
+              </button>
             </div>
           )}
 
