@@ -19,7 +19,12 @@ Overnight autonomous run, branch `launch/public-launch-prep`. One phase per loop
   - FIXED: network failures ("Failed to fetch") now show "Could not reach the PointTracer server…" via `fetchOrExplain` on upload/Strava list/import/disconnect.
   - CORS preflight verified working for localhost:5173 origin.
   - Note: shell default node is v10; use bun or `~/.nvm/versions/node/v22.22.2/bin` for frontend tooling.
-- [ ] **Phase C — Strava readiness** (frontend controls → VITE_API_BASE_URL, backend env-var-only config, error states, no secret exposure, amber branding)
+- [x] **Phase C — Strava readiness** (verified 2026-06-10, iteration 3)
+  - Backend uses exactly the six required env vars via `get_env`/`load_backend_env`; no hardcoded credentials; only official Strava URLs + localhost dev fallback.
+  - No access/refresh tokens ever reach the frontend — status returns athlete profile, scopes, expiry only.
+  - All frontend Strava calls go through `API_BASE` (VITE_API_BASE_URL); error states surface via `strava_error` redirect param + `readError`; amber branding intact.
+  - FIXED: status endpoint now reports `configured`; UploadPanel hides the Strava button when the backend has no Strava credentials (previously visitors hit a raw JSON 500).
+  - ⚠️ LIMITATION (document in H): token store is global single-user (`local_sqlite`). On a public deployment, one connected Strava account is shared with every visitor — they can list/import that athlete's activities. Recommendation: leave Strava env vars unset in production v1 (button now hides cleanly), or accept demo-account semantics.
 - [ ] **Phase D — Production env readiness** (vercel.json, Dockerfile, health endpoint, CORS, localhost fallbacks, .env.example files)
 - [ ] **Phase E — Local activity library/autosave** (upload autosave, boundary-edit autosave, multiplayer session autosave/reopen, map element + display prefs restore)
 - [ ] **Phase F — Smoke test** (production build, typecheck/lint, run backend + frontend, exercise core flows where possible headlessly)

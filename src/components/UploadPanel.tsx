@@ -66,6 +66,7 @@ interface StravaActivity {
 
 interface StravaStatus {
   connected: boolean;
+  configured?: boolean;
   athlete?: {
     firstname?: string;
     lastname?: string;
@@ -378,6 +379,8 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         )}
       </Button>
 
+      {stravaStatus?.configured === false && !stravaConnected ? null : (
+        <>
       <div className="h-6 w-px bg-border/50 mx-1" />
 
       <Button
@@ -410,6 +413,8 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
           {formatAthleteName(stravaStatus?.athlete) ?? "Strava connected"}
         </div>
       ) : null}
+        </>
+      )}
 
       {error && (
         <div className="flex items-center gap-1.5 text-[11px] text-destructive">
