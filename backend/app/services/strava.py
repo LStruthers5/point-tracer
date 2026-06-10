@@ -367,8 +367,10 @@ def map_strava_sport(value: Any) -> str:
         return "ultimate"
     if any(token in sport for token in ["run", "trail run", "virtual run"]):
         return "running"
-    if any(token in sport for token in ["soccer", "football", "rugby", "field hockey", "lacrosse"]):
-        return "ultimate"
+    if any(token in sport for token in ["soccer", "football", "futsal", "field hockey", "rugby", "lacrosse"]):
+        return "soccer"
+    if any(token in sport for token in ["basketball", "netball"]):
+        return "basketball"
     return "unknown"
 
 
@@ -399,6 +401,10 @@ def request_json(
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 429:
+            raise StravaRateLimitError(
+                "Strava rate limit reached. Too many requests — try again in a few minutes."
+            ) from exc
         if auth and exc.code == 401:
             raise StravaAuthError("Strava authorization expired. Please reconnect Strava.") from exc
         raise StravaError(f"Strava API request failed ({exc.code}): {body}") from exc
@@ -618,4 +624,8 @@ class StravaConfigError(StravaError):
 
 
 class StravaScopeError(StravaError):
+    pass
+
+
+class StravaRateLimitError(StravaError):
     pass
