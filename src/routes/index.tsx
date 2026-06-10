@@ -465,7 +465,14 @@ function Index() {
       <div className="h-screen flex flex-col overflow-hidden">
         <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-primary" />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="3" fill="currentColor" className="text-primary" />
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2.5 2" className="text-primary/60" />
+              <line x1="8" y1="1" x2="8" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+              <line x1="8" y1="12.5" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+              <line x1="1" y1="8" x2="3.5" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+              <line x1="12.5" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+            </svg>
             <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
           </div>
           <div className="flex items-center gap-2">
