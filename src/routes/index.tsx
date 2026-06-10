@@ -692,6 +692,7 @@ function Index() {
                     onMapElementsChange={setMapElements}
                     basemapStyle={selectedBasemapStyle}
                     onBasemapStyleChange={setSelectedBasemapStyle}
+                    sport={data.sport}
                   />
                 </div>
               </ResizablePanel>

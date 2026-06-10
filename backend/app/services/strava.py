@@ -361,7 +361,9 @@ def map_strava_sport(value: Any) -> str:
     if not sport:
         return "unknown"
 
-    if any(token in sport for token in ["tennis", "pickleball", "badminton", "racquet", "squash"]):
+    if any(token in sport for token in ["squash", "racquetball"]):
+        return "squash"
+    if any(token in sport for token in ["tennis", "pickleball", "badminton", "racquet"]):
         return "tennis"
     if any(token in sport for token in ["ultimate", "frisbee", "disc"]):
         return "ultimate"

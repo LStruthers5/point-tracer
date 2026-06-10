@@ -1,4 +1,4 @@
-export type CourtTemplate = "generic" | "soccer" | "basketball" | "ultimate" | "tennis";
+export type CourtTemplate = "generic" | "soccer" | "basketball" | "ultimate" | "tennis" | "squash";
 
 export interface MarkingPolyline {
   points: Array<{ xM: number; yM: number }>;
@@ -164,6 +164,24 @@ const tennisMarkings: MarkingPolyline[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Squash — WSF standard 9.75 m × 6.4 m
+// x axis = length (front→back), y axis = width
+// x range: [-4.875, 4.875]  y range: [-3.2, 3.2]
+// Short line at x = 0.615 (4.26 m from back wall)
+// Service box line at x = 2.215 (1.6 m behind short line)
+// Half court line: x=[0.615, 4.875] at y=0
+// ---------------------------------------------------------------------------
+
+const squashMarkings: MarkingPolyline[] = [
+  // Short line (full width)
+  line([0.615, -3.2], [0.615, 3.2]),
+  // Half court line (from short line to back wall)
+  line([0.615, 0], [4.875, 0]),
+  // Service box line (1.6 m behind short line, full width of service court)
+  line([2.215, -3.2], [2.215, 3.2]),
+];
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -174,6 +192,13 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 92,
     heightM: 42,
     markings: [],
+  },
+  squash: {
+    label: "Squash Court",
+    description: "WSF standard 9.75 m × 6.4 m with short line and service boxes.",
+    widthM: 9.75,
+    heightM: 6.4,
+    markings: squashMarkings,
   },
   soccer: {
     label: "Soccer Field",

@@ -30,6 +30,7 @@ const SPORTS = [
   { value: "soccer", label: "Soccer" },
   { value: "basketball", label: "Basketball" },
   { value: "tennis", label: "Tennis" },
+  { value: "squash", label: "Squash" },
   { value: "running", label: "Running" },
 ];
 
