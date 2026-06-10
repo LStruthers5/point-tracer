@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronDown, Download, FileJson, Film, FolderOpen, Map, Maximize2, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
+import { BarChart2, ChevronDown, Download, FileJson, Film, FolderOpen, List, Map, Maximize2, Pause, Pencil, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { SessionSidebar } from "@/components/SessionSidebar";
+import { SegmentList } from "@/components/SegmentList";
 import { AnalyticsCards } from "@/components/AnalyticsCards";
 import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
@@ -29,6 +30,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Slider } from "@/components/ui/slider";
 import { useSegmentPlayback } from "@/hooks/use-segment-playback";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { MapBasemapStyle, MapDisplayOptions } from "@/types/map-display";
 import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
@@ -82,6 +84,8 @@ function Index() {
   );
   const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState<"overview" | "map" | "segments">("map");
   const mapDisplayOptions = useMemo(() => settingsToMapDisplayOptions(settings), [settings]);
   const effectiveBasemapStyle: MapBasemapStyle =
     selectedBasemapStyle ?? (settings.theme === "dark" ? "dark" : "street");
@@ -461,20 +465,43 @@ function Index() {
   };
 
   if (!data) {
+    if (isMobile) {
+      return (
+        <div className="h-screen flex flex-col overflow-hidden">
+          <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 shrink-0">
+            <GpsLogo />
+            <SettingsMenu settings={settings} onChange={setSettings} />
+          </header>
+          <div className="flex-1 overflow-y-auto">
+            <UploadPanel onUploaded={handleUploaded} units={settings.units} />
+            <div className="p-4 space-y-4">
+              <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 p-6 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <FolderOpen className="h-5 w-5" />
+                </div>
+                <h2 className="mt-4 text-xl font-bold text-foreground">No activity loaded yet</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Upload a GPX/FIT file or connect Strava above.
+                </p>
+              </div>
+              <UtilitySidebar
+                displayOptions={mapDisplayOptions}
+                onDisplayOptionsChange={updateMapDisplayOptions}
+                records={activityLibrary}
+                activeId={activeActivityId}
+                onOpenActivity={openLocalActivity}
+                onDeleteActivity={deleteLocalActivity}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="h-screen flex flex-col overflow-hidden">
         <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
-          <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="3" fill="currentColor" className="text-primary" />
-              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2.5 2" className="text-primary/60" />
-              <line x1="8" y1="1" x2="8" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-              <line x1="8" y1="12.5" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-              <line x1="1" y1="8" x2="3.5" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-              <line x1="12.5" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-            </svg>
-            <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
-          </div>
+          <GpsLogo />
           <div className="flex items-center gap-2">
             <ExportMenu disabled onExportVideo={() => undefined} onExportBoundaries={() => undefined} />
             <SettingsMenu settings={settings} onChange={setSettings} />
@@ -566,14 +593,263 @@ function Index() {
     URL.revokeObjectURL(url);
   };
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mobile layout (< 768 px)
+  // ──────────────────────────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div className="h-screen flex flex-col overflow-hidden bg-background">
+        <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 shrink-0">
+          <GpsLogo />
+          <div className="flex items-center gap-1.5">
+            <ExportMenu
+              disabled={!data}
+              onExportVideo={() => setExportVideoOpen(true)}
+              onExportBoundaries={exportCorrectedBoundaries}
+            />
+            <SettingsMenu settings={settings} onChange={setSettings} />
+          </div>
+        </header>
+
+        <ExportVideoDialog
+          open={exportVideoOpen}
+          onOpenChange={setExportVideoOpen}
+          data={data}
+          displayOptions={mapDisplayOptions}
+          basemapStyle={effectiveBasemapStyle}
+          units={settings.units}
+          selectedSegment={selectedSegment}
+          mapElements={mapElements}
+          exportMode={!showFullRoute && selectedSegment ? "segment" : "session"}
+        />
+        <ActivityEditDialog
+          open={activityEditOpen}
+          onOpenChange={setActivityEditOpen}
+          data={data}
+          originalData={getOriginalSession(activityLibrary, activeActivityId) ?? data}
+          units={settings.units}
+          onApply={applyActivityEdit}
+          onRestoreOriginal={restoreOriginalActivity}
+        />
+
+        <div className="flex-1 overflow-hidden">
+          {/* Overview tab */}
+          {mobileTab === "overview" && (
+            <div className="h-full overflow-y-auto">
+              <UploadPanel onUploaded={handleUploaded} units={settings.units} />
+              <div className="p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      Session
+                    </div>
+                    <h1 className="text-2xl font-bold text-foreground mt-0.5 leading-tight">
+                      {data.activity_name}
+                    </h1>
+                    <span className="inline-block mt-2 text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                      {data.sport.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActivityEditOpen(true)}
+                    className="shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border border-border/50 bg-secondary/30 text-muted-foreground transition hover:border-primary/60 hover:bg-primary/10 hover:text-primary"
+                    aria-label="Edit activity"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: "Duration", value: formatDuration(data.summary.duration_min * 60) },
+                    { label: "Distance", value: formatDistance(data.summary.distance_m, settings.units) },
+                    { label: "Segments", value: String(data.segments.length) },
+                    { label: "Trackpoints", value: data.summary.trackpoint_count.toLocaleString() },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="stat-card bg-secondary/50 rounded-xl p-4 cursor-default">
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {label}
+                      </div>
+                      <div className="text-2xl font-bold text-foreground mt-0.5">{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFullRoute(true);
+                      setSelectedSegmentId(null);
+                      setGraphPreviewIdx(null);
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                      showFullRoute
+                        ? "bg-primary/15 text-primary border-primary/30"
+                        : "bg-secondary/40 text-muted-foreground border-border/50"
+                    }`}
+                  >
+                    Session
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFullRoute(false);
+                      setGraphPreviewIdx(null);
+                      shouldScrollFocusAnalyticsRef.current = true;
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                      !showFullRoute
+                        ? "bg-primary/15 text-primary border-primary/30"
+                        : "bg-secondary/40 text-muted-foreground border-border/50"
+                    }`}
+                  >
+                    Focus Segment
+                  </button>
+                </div>
+
+                {showFullRoute ? (
+                  <SessionTimelineEditor
+                    points={data.points}
+                    segments={data.segments}
+                    summary={data.summary}
+                    selectedId={selectedSegmentId}
+                    hoveredId={hoveredSegmentId}
+                    playheadIdx={sessionPlayback.idx}
+                    totalPoints={sessionTotalPoints}
+                    playing={sessionPlayback.playing}
+                    displayOptions={mapDisplayOptions}
+                    units={settings.units}
+                    showPaceGraph={settings.showPaceGraph}
+                    showHeartRateChart={settings.showHeartRateChart}
+                    manualSegmentIds={manualSegmentIds}
+                    onSelect={handleSelectTimelineSegment}
+                    onHover={setHoveredSegmentId}
+                    onPlay={sessionPlayback.play}
+                    onPause={sessionPlayback.pause}
+                    onRestart={sessionPlayback.restart}
+                    onSeek={sessionPlayback.seek}
+                    onGraphHover={setGraphPreviewIdx}
+                    onGraphSelect={seekSessionGraphPoint}
+                    onFocusSelected={focusSelectedSegment}
+                    onUpdateSegment={updateSegmentRange}
+                    onDeleteSelected={deleteSelectedSegment}
+                    onAddSegmentAtPlayhead={addSegmentAtPlayhead}
+                    onSplitSelected={splitSelectedSegment}
+                  />
+                ) : selectedSegment ? (
+                  <div className="space-y-3">
+                    <PlaybackControls
+                      segment={selectedSegment}
+                      hasPrev={selectedIndex > 0}
+                      hasNext={selectedIndex >= 0 && selectedIndex < data.segments.length - 1}
+                      playing={playback.playing}
+                      idx={playback.idx}
+                      totalPoints={totalPoints}
+                      speed={playback.speed}
+                      onPlay={playback.play}
+                      onPause={playback.pause}
+                      onRestart={playback.restart}
+                      onPrev={() => goToSegment(-1)}
+                      onNext={() => goToSegment(1)}
+                      onSeek={playback.seek}
+                      onSpeedChange={playback.setSpeed}
+                    />
+                    <AnalyticsCards
+                      segment={selectedSegment}
+                      points={data.points}
+                      segments={data.segments}
+                      mapElements={mapElements}
+                      units={settings.units}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    Tap a segment in the Segments tab to focus it.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Map tab */}
+          {mobileTab === "map" && (
+            <div className="h-full p-3">
+              <SessionMap
+                points={data.points}
+                segments={data.segments}
+                selectedSegmentId={mapSelectedSegmentId}
+                hoveredSegmentId={hoveredSegmentId}
+                showFullRoute={showFullRoute}
+                playbackIdx={selectedSegment ? (focusedPreviewOffset ?? playback.idx) : null}
+                sessionPlaybackIdx={showFullRoute ? effectiveSessionIdx : null}
+                playbackActive={showFullRoute ? sessionPlayback.playing : playback.playing}
+                displayOptions={mapDisplayOptions}
+                units={settings.units}
+                theme={settings.theme}
+                onlySegmentedActivity={settings.onlySegmentedActivity}
+                reducedAnimation={settings.reducedAnimation}
+                mapElements={mapElements}
+                onMapElementsChange={setMapElements}
+                basemapStyle={selectedBasemapStyle}
+                onBasemapStyleChange={setSelectedBasemapStyle}
+                sport={data.sport}
+              />
+            </div>
+          )}
+
+          {/* Segments tab */}
+          {mobileTab === "segments" && (
+            <div className="h-full overflow-y-auto p-4">
+              <SegmentList
+                segments={data.segments}
+                selectedId={selectedSegmentId}
+                hoveredId={hoveredSegmentId}
+                units={settings.units}
+                onSelect={(id) => {
+                  handleSelectSegment(id);
+                  setMobileTab("map");
+                }}
+                onHover={setHoveredSegmentId}
+              />
+            </div>
+          )}
+        </div>
+
+        <nav className="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-sm flex">
+          {(
+            [
+              { id: "overview" as const, Icon: BarChart2, label: "Overview" },
+              { id: "map" as const, Icon: Map, label: "Map" },
+              { id: "segments" as const, Icon: List, label: "Segments" },
+            ] as const
+          ).map(({ id, Icon, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMobileTab(id)}
+              className={`flex-1 flex flex-col items-center justify-center py-3 gap-0.5 transition-colors ${
+                mobileTab === id ? "text-primary" : "text-muted-foreground"
+              }`}
+            >
+              <Icon className="h-5 w-5" />
+              <span className="text-[10px] font-semibold tracking-wide">{label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Desktop layout
+  // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-primary" />
-          <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
-        </div>
+        <GpsLogo />
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
@@ -878,6 +1154,22 @@ function Index() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function GpsLogo() {
+  return (
+    <div className="flex items-center gap-2">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="3" fill="currentColor" className="text-primary" />
+        <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2.5 2" className="text-primary/60" />
+        <line x1="8" y1="1" x2="8" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+        <line x1="8" y1="12.5" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+        <line x1="1" y1="8" x2="3.5" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+        <line x1="12.5" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+      </svg>
+      <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
     </div>
   );
 }
