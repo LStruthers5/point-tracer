@@ -57,7 +57,7 @@ export function SessionSidebar({
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-secondary/50 rounded-xl p-3">
+    <div className="stat-card bg-secondary/50 rounded-xl p-3 cursor-default">
       <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>

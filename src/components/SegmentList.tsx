@@ -118,13 +118,14 @@ export function SegmentList({
           No matching segments
         </div>
       ) : null}
-      {visibleSegments.map((seg) => (
+      {visibleSegments.map((seg, index) => (
         <button
           key={seg.segment_id}
           onClick={() => onSelect(seg.segment_id)}
           onMouseEnter={() => onHover(seg.segment_id)}
           onMouseLeave={() => onHover(null)}
-          className={`segment-card w-full text-left glass-card rounded-xl p-3.5 cursor-pointer transition-all ${
+          style={{ animationDelay: `${index * 35}ms` }}
+          className={`segment-card segment-animate w-full text-left glass-card rounded-xl p-3.5 cursor-pointer transition-all ${
             selectedId === seg.segment_id ? "active" : ""
           }`}
         >

@@ -195,6 +195,51 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
+}
+
+/* Stat card hover */
+.stat-card {
+  transition: all 0.18s ease;
+}
+.stat-card:hover {
+  transform: scale(1.025);
+  background: oklch(from var(--secondary) l c h / 80%);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 20%);
+}
+
+/* Segment list stagger-in */
+@keyframes segment-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.segment-animate {
+  animation: segment-in 0.22s ease both;
+}
+
 .reduced-motion *,
 .reduced-motion *::before,
 .reduced-motion *::after {
