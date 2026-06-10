@@ -36,6 +36,7 @@ dist-ssr
 backend/.venv/
 backend/.env
 backend/.local/
+*.sqlite3
 node_modules/
 dist/
 build/

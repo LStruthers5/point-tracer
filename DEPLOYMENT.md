@@ -24,7 +24,10 @@ STRAVA_REDIRECT_URI=https://your-backend.example.com/api/strava/callback
 POINTTRACER_FRONTEND_URL=https://your-frontend.example.com
 POINTTRACER_CORS_ORIGINS=https://your-frontend.example.com
 STRAVA_TOKEN_DB_PATH=/persistent/path/strava_tokens.sqlite3
+POINTTRACER_GROUP_DB_PATH=/persistent/path/group_sessions.sqlite3
 ```
+
+`POINTTRACER_GROUP_DB_PATH` stores multiplayer invite-link sessions (SQLite, auto-expires after 30 days). Point it at a persistent disk so invite links survive restarts; if omitted it defaults next to the backend package.
 
 For local development, copy `backend/.env.example` to `backend/.env` and fill in local values. `backend/.env` is ignored by git.
 
