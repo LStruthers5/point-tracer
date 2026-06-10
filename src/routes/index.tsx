@@ -240,10 +240,12 @@ function Index() {
     settings.defaultPlaybackSpeed,
   );
   const effectiveSessionIdx = graphPreviewIdx ?? sessionPlayback.idx;
+  const multiplayerShellSecondsPerIdx =
+    multiplayerSession && data ? getShellSecondsPerIdx(data.points) : 1;
   const effectiveMultiplayerElapsedSeconds =
     multiplayerSession && activeMultiplayerWindow
-      ? activeMultiplayerWindow.startOffsetS + effectiveSessionIdx
-      : effectiveSessionIdx;
+      ? activeMultiplayerWindow.startOffsetS + effectiveSessionIdx * multiplayerShellSecondsPerIdx
+      : effectiveSessionIdx * multiplayerShellSecondsPerIdx;
   const playheadSegment =
     segments.find(
       (segment) =>
@@ -384,7 +386,11 @@ function Index() {
 
       const next = (await res.json()) as MultiplayerSessionData;
       activateMultiplayerSession(next);
-      setAddPlayerSuccess(`${next.participant_count} players synced`);
+      setAddPlayerSuccess(
+        participantsOverlapInTime(next)
+          ? `${next.participant_count} players synced`
+          : `${next.participant_count} players added — these activities don't overlap in time, so the replay spans each recording back to back.`,
+      );
     } catch (error) {
       setAddPlayerError(error instanceof Error ? error.message : "Could not add player");
     } finally {
@@ -2325,6 +2331,25 @@ interface MultiplayerPlaybackWindow {
   durationS: number;
 }
 
+// 4 h at one point per second; longer timelines get a coarser shell step.
+const MAX_MULTIPLAYER_SHELL_POINTS = 14_400;
+
+function getShellSecondsPerIdx(points: SessionPoint[]): number {
+  if (points.length < 2) return 1;
+  const stepMs = Date.parse(points[1].t) - Date.parse(points[0].t);
+  return Number.isFinite(stepMs) && stepMs > 0 ? stepMs / 1000 : 1;
+}
+
+function participantsOverlapInTime(multiplayer: MultiplayerSessionData): boolean {
+  const startMs = Math.max(
+    ...multiplayer.participants.map((participant) => Date.parse(participant.summary.start_time)),
+  );
+  const endMs = Math.min(
+    ...multiplayer.participants.map((participant) => Date.parse(participant.summary.end_time)),
+  );
+  return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs;
+}
+
 function getMultiplayerOverlapWindow(
   multiplayer: MultiplayerSessionData,
   displayOptions: Record<string, MultiplayerParticipantDisplayOptions>,
@@ -2359,12 +2384,17 @@ function buildSessionShellFromMultiplayer(
   const startMs = new Date(playbackWindow?.startTime ?? multiplayer.playback.start_time).getTime();
   const durationS = playbackWindow?.durationS ?? Math.max(1, Math.ceil(multiplayer.playback.duration_s));
   const origin = multiplayer.summary.origin;
-  const points: SessionPoint[] = Array.from({ length: durationS + 1 }, (_, idx) => ({
+  // Non-overlapping activities can span days; cap the synthetic timeline so we
+  // never allocate millions of shell points. The playhead-to-seconds mapping
+  // derives the step from these timestamps (see getShellSecondsPerIdx).
+  const stepS = Math.max(1, Math.ceil(durationS / MAX_MULTIPLAYER_SHELL_POINTS));
+  const pointCount = Math.floor(durationS / stepS) + 1;
+  const points: SessionPoint[] = Array.from({ length: pointCount }, (_, idx) => ({
     lat: origin.lat,
     lon: origin.lon,
     x_m: 0,
     y_m: 0,
-    t: new Date(startMs + idx * 1000).toISOString(),
+    t: new Date(startMs + idx * stepS * 1000).toISOString(),
     speed_mps: 0,
     speed_smooth_mps: 0,
   }));
