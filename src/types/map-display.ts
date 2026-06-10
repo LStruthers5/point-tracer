@@ -13,6 +13,14 @@ export interface MapDisplayOptions {
   heatmapMode: MapHeatmapMode;
 }
 
+export interface MultiplayerParticipantDisplayOptions {
+  visible: boolean;
+  label: string;
+  showLabel: boolean;
+  traceMode: MapTraceMode;
+  lineColor: MapLineColor;
+}
+
 export const MAP_LINE_COLORS: Record<MapLineColor, string> = {
   green: "#58bf79",
   cyan: "#38bdf8",
