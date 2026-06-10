@@ -142,6 +142,8 @@ function Index() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [syncingGroup, setSyncingGroup] = useState(false);
   const [multiplayerDisplayOptions, setMultiplayerDisplayOptions] = useState<
     Record<string, MultiplayerParticipantDisplayOptions>
   >({});
@@ -435,6 +437,12 @@ function Index() {
       }
       const { id } = (await res.json()) as { id: string };
       setInviteLink(`${window.location.origin}/join/${id}`);
+      // Remember the group on the creator's side so they can sync in new players,
+      // and put ?group=<id> in the URL so a plain refresh re-fetches too.
+      setActiveGroupId(id);
+      const url = new URL(window.location.href);
+      url.searchParams.set("group", id);
+      window.history.replaceState({}, "", url.toString());
     } catch (error) {
       setInviteError(error instanceof Error ? error.message : "Could not create invite link");
     } finally {
@@ -442,33 +450,50 @@ function Index() {
     }
   };
 
-  // Load a shared group session when arriving via /?group=<id> (e.g. "open replay"
-  // from the join page, or the creator re-opening the link to see new players).
+  // Fetch a shared group session and load it into the viewer. Returns the
+  // participant count so callers can surface "N players" feedback.
+  const loadGroupSession = async (groupId: string): Promise<number | null> => {
+    const res = await fetch(`${GROUP_ENDPOINT}/${groupId}`);
+    if (!res.ok) throw new Error(await readResponseError(res, "Could not load shared replay"));
+    const session = (await res.json()) as { session_type?: string; participant_count?: number };
+    if (session.session_type === "multiplayer") {
+      activateMultiplayerSession(session as MultiplayerSessionData, { resetMapElements: true });
+      return session.participant_count ?? null;
+    }
+    setData(session as unknown as SessionData);
+    return 1;
+  };
+
+  // Manual "Sync players" — pull in anyone who has joined since, without a reload.
+  const handleSyncGroupPlayers = async () => {
+    if (!activeGroupId) return;
+    setSyncingGroup(true);
+    setAddPlayerError(null);
+    try {
+      const count = await loadGroupSession(activeGroupId);
+      setAddPlayerSuccess(count && count > 1 ? `${count} players synced` : "No new players yet");
+    } catch (error) {
+      setAddPlayerError(error instanceof Error ? error.message : "Could not sync players");
+    } finally {
+      setSyncingGroup(false);
+    }
+  };
+
+  // On arrival via /?group=<id> (join handoff, or creator re-opening the link),
+  // load the shared session and keep the param so a refresh re-syncs.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const groupId = params.get("group");
+    const groupId = new URLSearchParams(window.location.search).get("group");
     if (!groupId) return;
 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${GROUP_ENDPOINT}/${groupId}`);
-        if (!res.ok) return;
-        const session = (await res.json()) as { session_type?: string };
+        const count = await loadGroupSession(groupId);
         if (cancelled) return;
-        if (session.session_type === "multiplayer") {
-          activateMultiplayerSession(session as MultiplayerSessionData, { resetMapElements: true });
-        } else {
-          setData(session as unknown as SessionData);
-        }
+        setActiveGroupId(groupId);
+        if (count && count > 1) setAddPlayerSuccess(`${count} players synced`);
       } catch {
         // Silent — an expired/invalid group just leaves the app in its normal state.
-      } finally {
-        if (!cancelled) {
-          const url = new URL(window.location.href);
-          url.searchParams.delete("group");
-          window.history.replaceState({}, "", url.toString());
-        }
       }
     })();
 
@@ -1225,6 +1250,9 @@ function Index() {
         loading={addPlayerLoading}
         error={addPlayerError}
         success={addPlayerSuccess}
+        canSync={Boolean(activeGroupId)}
+        syncing={syncingGroup}
+        onSync={() => void handleSyncGroupPlayers()}
         onOpen={() => {
           setInviteLink(null);
           setInviteError(null);
@@ -1599,12 +1627,18 @@ function AddPlayerBar({
   loading,
   error,
   success,
+  canSync,
+  syncing,
+  onSync,
   onOpen,
 }: {
   participantCount: number;
   loading: boolean;
   error: string | null;
   success: string | null;
+  canSync: boolean;
+  syncing: boolean;
+  onSync: () => void;
   onOpen: () => void;
 }) {
   return (
@@ -1625,6 +1659,24 @@ function AddPlayerBar({
         )}
         Add player
       </Button>
+      {canSync ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={onSync}
+          disabled={syncing}
+          title="Pull in anyone who has joined via the invite link"
+        >
+          {syncing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RotateCcw className="h-3.5 w-3.5" />
+          )}
+          Sync players
+        </Button>
+      ) : null}
       <span className="text-[11px] text-muted-foreground">
         {participantCount > 1
           ? `${participantCount} players on shared timeline`
