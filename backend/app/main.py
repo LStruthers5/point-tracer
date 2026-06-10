@@ -15,6 +15,7 @@ from app.services.multiplayer import (
     parse_activity_points,
 )
 from app.services import strava
+from app.services import group_sessions
 
 
 strava.load_backend_env()
@@ -283,6 +284,148 @@ async def upload_multiplayer(
             status_code=500,
             detail="Unexpected error while processing multiplayer activity files.",
         ) from exc
+
+
+MAX_GROUP_PARTICIPANTS = 8
+
+
+@app.post("/api/group")
+async def create_group_session(
+    session_file: UploadFile = File(...),
+    sport: str = Form(default="unknown"),
+) -> dict:
+    """Seed a shareable group session from the creator's current session."""
+    try:
+        payload_bytes = await session_file.read()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Failed to read session payload.") from exc
+
+    if not payload_bytes:
+        raise HTTPException(status_code=400, detail="Session payload is empty.")
+    if len(payload_bytes) > MAX_EXISTING_SESSION_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Session payload is too large. "
+                f"Max size is {MAX_EXISTING_SESSION_BYTES // (1024 * 1024)} MB."
+            ),
+        )
+
+    try:
+        session_json = payload_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Session payload must be UTF-8 JSON.") from exc
+
+    try:
+        session = json.loads(session_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Session payload must be valid JSON.") from exc
+
+    # Validate the seed has usable timed points before persisting.
+    try:
+        multiplayer_sources_from_session(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    normalized_sport = (sport or "").strip().lower() or "unknown"
+    group_id = group_sessions.create_group(session_json, normalized_sport)
+    return {"id": group_id}
+
+
+@app.get("/api/group/{group_id}")
+def get_group_session(group_id: str) -> dict:
+    """Return the combined session for a group (single seed if no one has joined)."""
+    record = group_sessions.get_group(group_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="This invite link is invalid or has expired.")
+
+    try:
+        session = json.loads(record["session_json"])
+        sources = multiplayer_sources_from_session(session)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Stored group session is corrupted.") from exc
+
+    # A single-athlete group cannot be built as multiplayer yet — return the seed
+    # so the join page can show "1 athlete waiting".
+    if len(sources) < 2:
+        return session
+
+    try:
+        return build_multiplayer_session_from_sources(sources, sport=record["sport"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/group/{group_id}/join")
+async def join_group_session(
+    group_id: str,
+    file: UploadFile = File(...),
+    participant_label: str | None = Form(default=None),
+) -> dict:
+    """Append a joining athlete's activity file and rebuild the shared replay."""
+    record = group_sessions.get_group(group_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="This invite link is invalid or has expired.")
+
+    try:
+        session = json.loads(record["session_json"])
+        sources = multiplayer_sources_from_session(session)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Stored group session is corrupted.") from exc
+
+    if len(sources) >= MAX_GROUP_PARTICIPANTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This group already has the maximum of {MAX_GROUP_PARTICIPANTS} athletes.",
+        )
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Your activity file must have a filename.")
+    extension = Path(file.filename).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{extension}'. Only .gpx and .fit are supported right now.",
+        )
+
+    try:
+        file_bytes = await file.read()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read {file.filename}.") from exc
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail=f"{file.filename} is empty.")
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{file.filename} is too large. Max size is {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.",
+        )
+
+    try:
+        raw_points = parse_activity_points(file_bytes, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    label = (participant_label or "").strip() or None
+    sources.append(
+        {
+            "label": label,
+            "source_file": file.filename,
+            "raw_points": raw_points,
+        }
+    )
+
+    try:
+        combined = build_multiplayer_session_from_sources(sources, sport=record["sport"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Unexpected error while joining the shared replay.",
+        ) from exc
+
+    group_sessions.update_group(group_id, json.dumps(combined))
+    return combined
 
 
 @app.get("/api/strava/connect")

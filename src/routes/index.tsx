@@ -6,10 +6,13 @@ import {
   BarChart2,
   CheckCircle2,
   ChevronDown,
+  Copy,
   Download,
   FileJson,
   Film,
   FolderOpen,
+  Info,
+  Link2,
   List,
   Loader2,
   Map,
@@ -19,6 +22,7 @@ import {
   Play,
   RotateCcw,
   Trash2,
+  Upload,
   UserPlus,
   X,
 } from "lucide-react";
@@ -71,6 +75,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8000";
 const MULTIPLAYER_ENDPOINT = `${API_BASE}/api/upload/multiplayer`;
+const GROUP_ENDPOINT = `${API_BASE}/api/group`;
 const MULTIPLAYER_TRACE_MODES: Array<{ value: MapTraceMode; label: string }> = [
   { value: "full", label: "Full trace" },
   { value: "streak", label: "Streak" },
@@ -133,6 +138,10 @@ function Index() {
   const [addPlayerLoading, setAddPlayerLoading] = useState(false);
   const [addPlayerError, setAddPlayerError] = useState<string | null>(null);
   const [addPlayerSuccess, setAddPlayerSuccess] = useState<string | null>(null);
+  const [addPlayerDialogOpen, setAddPlayerDialogOpen] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [multiplayerDisplayOptions, setMultiplayerDisplayOptions] = useState<
     Record<string, MultiplayerParticipantDisplayOptions>
   >({});
@@ -405,6 +414,69 @@ function Index() {
       if (addPlayerInputRef.current) addPlayerInputRef.current.value = "";
     }
   };
+
+  const handleCreateInviteLink = async () => {
+    if (!data) return;
+    setInviteLoading(true);
+    setInviteError(null);
+    try {
+      const form = new FormData();
+      form.append("sport", data.sport || "unknown");
+      const sessionPayload = JSON.stringify(multiplayerSession ?? data);
+      form.append(
+        "session_file",
+        new Blob([sessionPayload], { type: "application/json" }),
+        "session.json",
+      );
+
+      const res = await fetch(GROUP_ENDPOINT, { method: "POST", body: form });
+      if (!res.ok) {
+        throw new Error(await readResponseError(res, "Could not create invite link"));
+      }
+      const { id } = (await res.json()) as { id: string };
+      setInviteLink(`${window.location.origin}/join/${id}`);
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : "Could not create invite link");
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  // Load a shared group session when arriving via /?group=<id> (e.g. "open replay"
+  // from the join page, or the creator re-opening the link to see new players).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const groupId = params.get("group");
+    if (!groupId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${GROUP_ENDPOINT}/${groupId}`);
+        if (!res.ok) return;
+        const session = (await res.json()) as { session_type?: string };
+        if (cancelled) return;
+        if (session.session_type === "multiplayer") {
+          activateMultiplayerSession(session as MultiplayerSessionData, { resetMapElements: true });
+        } else {
+          setData(session as unknown as SessionData);
+        }
+      } catch {
+        // Silent — an expired/invalid group just leaves the app in its normal state.
+      } finally {
+        if (!cancelled) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("group");
+          window.history.replaceState({}, "", url.toString());
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSelectSegment = (id: number) => {
     setGraphPreviewIdx(null);
@@ -1153,7 +1225,11 @@ function Index() {
         loading={addPlayerLoading}
         error={addPlayerError}
         success={addPlayerSuccess}
-        onChooseFile={() => addPlayerInputRef.current?.click()}
+        onOpen={() => {
+          setInviteLink(null);
+          setInviteError(null);
+          setAddPlayerDialogOpen(true);
+        }}
       />
       <input
         ref={addPlayerInputRef}
@@ -1161,6 +1237,15 @@ function Index() {
         accept=".gpx,.fit,application/gpx+xml"
         className="hidden"
         onChange={(event) => void handleAddPlayerFile(event.target.files?.[0] ?? null)}
+      />
+      <AddPlayerDialog
+        open={addPlayerDialogOpen}
+        onOpenChange={setAddPlayerDialogOpen}
+        onChooseFile={() => addPlayerInputRef.current?.click()}
+        onCreateInviteLink={handleCreateInviteLink}
+        inviteLink={inviteLink}
+        inviteLoading={inviteLoading}
+        inviteError={inviteError}
       />
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
@@ -1514,13 +1599,13 @@ function AddPlayerBar({
   loading,
   error,
   success,
-  onChooseFile,
+  onOpen,
 }: {
   participantCount: number;
   loading: boolean;
   error: string | null;
   success: string | null;
-  onChooseFile: () => void;
+  onOpen: () => void;
 }) {
   return (
     <div className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border/40 bg-card/20 px-3 py-1.5">
@@ -1529,9 +1614,9 @@ function AddPlayerBar({
         variant="outline"
         size="sm"
         className="h-8 gap-1.5 text-xs"
-        onClick={onChooseFile}
+        onClick={onOpen}
         disabled={loading}
-        title="Add another timed activity to this shared replay"
+        title="Add another athlete to this shared replay"
       >
         {loading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1558,6 +1643,134 @@ function AddPlayerBar({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function AddPlayerDialog({
+  open,
+  onOpenChange,
+  onChooseFile,
+  onCreateInviteLink,
+  inviteLink,
+  inviteLoading,
+  inviteError,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChooseFile: () => void;
+  onCreateInviteLink: () => void;
+  inviteLink: string | null;
+  inviteLoading: boolean;
+  inviteError: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyLink = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add another athlete</DialogTitle>
+          <DialogDescription>
+            Replay multiple athletes on one shared timeline. Each person provides their own activity.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-2.5 rounded-xl border border-border/60 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <p>
+            Per Strava's API rules, each athlete may only use their{" "}
+            <strong className="text-foreground">own</strong> data. Every player must export and
+            provide their own GPX/FIT file — in Strava, open the activity → ⋯ menu →{" "}
+            <em>Export GPX</em>. You can't pull a teammate's data for them.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenChange(false);
+              onChooseFile();
+            }}
+            className="group flex flex-col items-start gap-2 rounded-2xl border border-border/60 bg-card/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-card/70"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12 text-primary">
+              <Upload className="h-5 w-5" />
+            </div>
+            <div className="text-sm font-semibold text-foreground">Upload their file</div>
+            <div className="text-xs text-muted-foreground">
+              Already have their .gpx/.fit? Add it to this replay now.
+            </div>
+          </button>
+
+          <div className="flex flex-col items-start gap-2 rounded-2xl border border-border/60 bg-card/40 p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12 text-primary">
+              <Link2 className="h-5 w-5" />
+            </div>
+            <div className="text-sm font-semibold text-foreground">Share an invite link</div>
+            <div className="text-xs text-muted-foreground">
+              Send a link; they add their own activity from their device.
+            </div>
+            {inviteLink ? (
+              <div className="mt-1 flex w-full items-center gap-1.5">
+                <Input
+                  readOnly
+                  value={inviteLink}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="h-8 text-[11px]"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0 gap-1.5 px-2.5"
+                  onClick={() => void copyLink()}
+                >
+                  {copied ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                className="mt-1 h-8 w-full gap-1.5"
+                onClick={onCreateInviteLink}
+                disabled={inviteLoading}
+              >
+                {inviteLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5" />
+                )}
+                Create link
+              </Button>
+            )}
+            {inviteError ? (
+              <span className="flex items-start gap-1.5 text-[11px] text-destructive">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {inviteError}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
