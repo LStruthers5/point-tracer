@@ -42,6 +42,8 @@ const SEGMENTATION_MODES: Array<{ value: SegmentationMode; label: string }> = [
 
 const METERS_PER_MILE = 1609.344;
 const METERS_PER_KILOMETER = 1000;
+// Mirrors MAX_FILE_SIZE_BYTES in backend/app/main.py.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 interface UploadPanelProps {
   onUploaded: (data: SessionData) => void;
@@ -64,6 +66,7 @@ interface StravaActivity {
 
 interface StravaStatus {
   connected: boolean;
+  configured?: boolean;
   athlete?: {
     firstname?: string;
     lastname?: string;
@@ -139,6 +142,12 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       setError("Please choose a .gpx or .fit file first.");
       return;
     }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(
+        `${truncate(file.name, 22)} is ${(file.size / (1024 * 1024)).toFixed(1)} MB — the limit is 10 MB.`,
+      );
+      return;
+    }
     setLoading(true);
     setError(null);
     setSuccess(false);
@@ -146,7 +155,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       const form = buildSegmentationForm();
       form.append("file", file);
 
-      const res = await fetch(ENDPOINT, { method: "POST", body: form });
+      const res = await fetchOrExplain(ENDPOINT, { method: "POST", body: form });
       if (!res.ok) {
         throw new Error(await readError(res, "Upload failed"));
       }
@@ -180,7 +189,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
     setStravaLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/strava/activities?page=${page}&per_page=20`);
+      const res = await fetchOrExplain(`${API_BASE}/api/strava/activities?page=${page}&per_page=20`);
       if (!res.ok) {
         throw new Error(await readError(res, "Could not load Strava activities"));
       }
@@ -207,7 +216,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
     setStravaLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/strava/disconnect`, { method: "POST" });
+      const res = await fetchOrExplain(`${API_BASE}/api/strava/disconnect`, { method: "POST" });
       if (!res.ok) {
         throw new Error(await readError(res, "Could not disconnect Strava"));
       }
@@ -236,7 +245,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
       if (activity.pointtracer_sport && activity.pointtracer_sport !== "unknown") {
         form.set("sport", activity.pointtracer_sport);
       }
-      const res = await fetch(`${API_BASE}/api/strava/import/${activity.id}`, {
+      const res = await fetchOrExplain(`${API_BASE}/api/strava/import/${activity.id}`, {
         method: "POST",
         body: form,
       });
@@ -370,6 +379,8 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         )}
       </Button>
 
+      {stravaStatus?.configured === false && !stravaConnected ? null : (
+        <>
       <div className="h-6 w-px bg-border/50 mx-1" />
 
       <Button
@@ -402,6 +413,8 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
           {formatAthleteName(stravaStatus?.athlete) ?? "Strava connected"}
         </div>
       ) : null}
+        </>
+      )}
 
       {error && (
         <div className="flex items-center gap-1.5 text-[11px] text-destructive">
@@ -529,6 +542,16 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
 
 function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+async function fetchOrExplain(input: string, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error(
+      "Could not reach the PointTracer server. It may be starting up — try again in a few seconds.",
+    );
+  }
 }
 
 async function readError(response: Response, fallback: string) {

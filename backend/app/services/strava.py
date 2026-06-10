@@ -106,11 +106,20 @@ def exchange_code_for_token(
     return token
 
 
+def is_configured() -> bool:
+    load_backend_env()
+    return all(
+        os.environ.get(name)
+        for name in ("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET", "STRAVA_REDIRECT_URI")
+    )
+
+
 def get_connection_status() -> dict[str, Any]:
     token = get_token()
     if token is None:
         return {
             "connected": False,
+            "configured": is_configured(),
             "required_scopes": sorted(REQUIRED_SCOPES),
             "storage": "local_sqlite",
         }
@@ -124,6 +133,7 @@ def get_connection_status() -> dict[str, Any]:
     missing = sorted(REQUIRED_SCOPES - parse_scopes(token.scope))
     return {
         "connected": not missing,
+        "configured": is_configured(),
         "athlete": token.athlete,
         "athlete_id": athlete_id_from_token(token),
         "scope": token.scope,
