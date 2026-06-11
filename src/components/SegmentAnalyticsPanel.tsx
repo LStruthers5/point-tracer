@@ -9,6 +9,7 @@ import {
   type SegmentPerformanceInsight,
   type XYPoint,
 } from "@/lib/recovery-performance";
+import { FieldZoneStats } from "@/components/FieldZoneStats";
 
 const NEAR_POINT_METERS = 10;
 const COLUMN_STORAGE_KEY = "pointtracer.analyticsColumns.v2";
@@ -139,6 +140,8 @@ export function SegmentAnalyticsPanel({
   }, [columnSettings]);
 
   return (
+    <div className="space-y-3">
+    <FieldZoneStats points={points} sessionPoints={points} mapElements={mapElements} />
     <section className="glass-card rounded-2xl p-5 space-y-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -277,6 +280,7 @@ export function SegmentAnalyticsPanel({
         </table>
       </div>
     </section>
+    </div>
   );
 }
 
