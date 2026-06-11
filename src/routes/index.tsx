@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SegmentList } from "@/components/SegmentList";
+import { TrainingConsentBanner } from "@/components/TrainingConsentBanner";
 import { AnalyticsCards } from "@/components/AnalyticsCards";
 import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
@@ -960,12 +961,25 @@ function Index() {
     URL.revokeObjectURL(url);
   };
 
+  // One-time, optional opt-in prompt for sharing corrections as training data.
+  // Default stays OFF; shown once (gated by trainingConsentPrompted).
+  const trainingConsentBanner =
+    data && !settings.trainingConsentPrompted ? (
+      <TrainingConsentBanner
+        onAllow={() =>
+          setSettings((s) => ({ ...s, shareTrainingData: true, trainingConsentPrompted: true }))
+        }
+        onDismiss={() => setSettings((s) => ({ ...s, trainingConsentPrompted: true }))}
+      />
+    ) : null;
+
   // ──────────────────────────────────────────────────────────────────────────
   // Mobile layout (< 768 px)
   // ──────────────────────────────────────────────────────────────────────────
   if (isMobile) {
     return (
       <div className="h-screen flex flex-col overflow-hidden bg-background">
+        {trainingConsentBanner}
         <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 shrink-0">
           <GpsLogo />
           <div className="flex items-center gap-1.5">
@@ -1232,6 +1246,7 @@ function Index() {
   // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col overflow-hidden">
+      {trainingConsentBanner}
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
         <GpsLogo />
