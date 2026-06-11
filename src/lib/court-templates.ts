@@ -4,6 +4,19 @@ export interface MarkingPolyline {
   points: Array<{ xM: number; yM: number }>;
 }
 
+/**
+ * A field zone, defined as a band along the field's length (the width/x-axis,
+ * normalized 0..1 from one end to the other). Used for time-in-zone analytics.
+ */
+export interface FieldZone {
+  id: string;
+  label: string;
+  /** Start of the band along the length axis (0 = x-min end, 1 = x-max end). */
+  uMin: number;
+  /** End of the band along the length axis. */
+  uMax: number;
+}
+
 export interface CourtTemplateSpec {
   label: string;
   description: string;
@@ -12,7 +25,42 @@ export interface CourtTemplateSpec {
   /** Height along the y-axis (up-down at rotation=0) in meters. */
   heightM: number;
   markings: MarkingPolyline[];
+  /** Sport-specific zones along the length axis, ordered x-min → x-max. */
+  zones?: FieldZone[];
 }
+
+// ---------------------------------------------------------------------------
+// Field zones (per sport) — bands along the length axis (x), ordered x-min→x-max.
+// Direction follows how the user placed/rotated the field on the map.
+// ---------------------------------------------------------------------------
+
+const soccerZones: FieldZone[] = [
+  { id: "third-a", label: "End third", uMin: 0, uMax: 1 / 3 },
+  { id: "third-mid", label: "Middle third", uMin: 1 / 3, uMax: 2 / 3 },
+  { id: "third-b", label: "Far third", uMin: 2 / 3, uMax: 1 },
+];
+
+// Ultimate end zones are 18 m of a 100 m field = 0.18 at each end.
+const ultimateZones: FieldZone[] = [
+  { id: "endzone-a", label: "End zone", uMin: 0, uMax: 0.18 },
+  { id: "central", label: "Central field", uMin: 0.18, uMax: 0.82 },
+  { id: "endzone-b", label: "Far end zone", uMin: 0.82, uMax: 1 },
+];
+
+const basketballZones: FieldZone[] = [
+  { id: "half-a", label: "Backcourt", uMin: 0, uMax: 0.5 },
+  { id: "half-b", label: "Frontcourt", uMin: 0.5, uMax: 1 },
+];
+
+const tennisZones: FieldZone[] = [
+  { id: "half-a", label: "Near half", uMin: 0, uMax: 0.5 },
+  { id: "half-b", label: "Far half", uMin: 0.5, uMax: 1 },
+];
+
+const squashZones: FieldZone[] = [
+  { id: "front", label: "Front court", uMin: 0, uMax: 0.5 },
+  { id: "back", label: "Back court", uMin: 0.5, uMax: 1 },
+];
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
@@ -199,6 +247,7 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 9.75,
     heightM: 6.4,
     markings: squashMarkings,
+    zones: squashZones,
   },
   soccer: {
     label: "Soccer Field",
@@ -206,6 +255,7 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 105,
     heightM: 68,
     markings: soccerMarkings,
+    zones: soccerZones,
   },
   basketball: {
     label: "Basketball Court",
@@ -213,6 +263,7 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 28,
     heightM: 15,
     markings: basketballMarkings,
+    zones: basketballZones,
   },
   ultimate: {
     label: "Ultimate Field",
@@ -220,6 +271,7 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 100,
     heightM: 37,
     markings: ultimateMarkings,
+    zones: ultimateZones,
   },
   tennis: {
     label: "Tennis Court",
@@ -227,5 +279,6 @@ export const COURT_TEMPLATES: Record<CourtTemplate, CourtTemplateSpec> = {
     widthM: 23.77,
     heightM: 10.97,
     markings: tennisMarkings,
+    zones: tennisZones,
   },
 };

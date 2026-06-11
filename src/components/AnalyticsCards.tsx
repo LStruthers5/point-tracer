@@ -8,6 +8,7 @@ import {
   findSegmentInsight,
   getRecoveryScoreFromStats,
 } from "@/lib/recovery-performance";
+import { FieldZoneStats } from "@/components/FieldZoneStats";
 
 interface AnalyticsCardsProps {
   segment: SessionSegment | null;
@@ -48,8 +49,10 @@ export function AnalyticsCards({
     buildSegmentPerformanceInsights(points, segments, restXY),
     segment.segment_id,
   );
+  const segmentPoints = points.slice(segment.start_idx, segment.end_idx + 1);
 
   return (
+    <div className="space-y-3">
     <div className="glass-card rounded-2xl p-5 space-y-4">
       <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3">
         {segment.label} Analytics
@@ -133,6 +136,8 @@ export function AnalyticsCards({
           </div>
         </div>
       ) : null}
+    </div>
+    <FieldZoneStats points={segmentPoints} sessionPoints={points} mapElements={mapElements} />
     </div>
   );
 }
