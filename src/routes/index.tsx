@@ -67,6 +67,7 @@ import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
 import type { MultiplayerSessionData, SessionData, SessionPoint, SessionSegment } from "@/types/session";
 import { formatDistance, formatDuration } from "@/lib/format";
+import { track } from "@/lib/analytics";
 
 const EMPTY_SEGMENTS: SessionSegment[] = [];
 const SETTINGS_STORAGE_KEY = "pointtracer.settings.v1";
@@ -76,6 +77,7 @@ const API_BASE =
   "http://127.0.0.1:8000";
 const MULTIPLAYER_ENDPOINT = `${API_BASE}/api/upload/multiplayer`;
 const GROUP_ENDPOINT = `${API_BASE}/api/group`;
+const TRAINING_ENDPOINT = `${API_BASE}/api/training/segmentation`;
 const MULTIPLAYER_TRACE_MODES: Array<{ value: MapTraceMode; label: string }> = [
   { value: "full", label: "Full trace" },
   { value: "streak", label: "Streak" },
@@ -168,6 +170,7 @@ function Index() {
   const focusAnalyticsRef = useRef<HTMLDivElement | null>(null);
   const addPlayerInputRef = useRef<HTMLInputElement | null>(null);
   const shouldScrollFocusAnalyticsRef = useRef(false);
+  const lastTrainingSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
@@ -243,6 +246,51 @@ function Index() {
     multiplayerOverlapOnly,
     multiplayerSession,
   ]);
+
+  // Track B — opt-in segmentation-correction capture for model training.
+  // Fires (debounced, deduped) only when the user has opted in and has made
+  // manual segment corrections. Sends the corrected boundaries + GPS track +
+  // the original auto-segmentation as labeled data. Fire-and-forget.
+  useEffect(() => {
+    if (!settings.shareTrainingData) return;
+    if (!data || !activeActivityId || manualSegmentIds.size === 0) return;
+
+    const correctedSegments = data.segments.map((s) => ({
+      start_idx: s.start_idx,
+      end_idx: s.end_idx,
+      label: s.label,
+    }));
+    const signature = `${activeActivityId}:${JSON.stringify(correctedSegments)}`;
+    if (signature === lastTrainingSignatureRef.current) return;
+
+    const timeout = window.setTimeout(() => {
+      const original = getOriginalSession(activityLibrary, activeActivityId) ?? data;
+      const payload = {
+        activity_key: activeActivityId,
+        sport: data.sport,
+        source_file: data.source_file,
+        points: data.points.map((p) => ({ lat: p.lat, lon: p.lon, t: p.t })),
+        original_segments: original.segments.map((s) => ({
+          start_idx: s.start_idx,
+          end_idx: s.end_idx,
+        })),
+        corrected_segments: correctedSegments,
+      };
+      void fetch(TRAINING_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => {
+          if (res.ok) lastTrainingSignatureRef.current = signature;
+        })
+        .catch(() => {
+          // Best-effort; ignore failures so it never disrupts the user.
+        });
+    }, 1500);
+
+    return () => window.clearTimeout(timeout);
+  }, [settings.shareTrainingData, data, activeActivityId, manualSegmentIds, activityLibrary]);
 
   const segments = data?.segments ?? EMPTY_SEGMENTS;
   const selectedSegment = segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
@@ -331,6 +379,7 @@ function Index() {
   };
 
   const handleUploaded = (next: SessionData) => {
+    track("activity_uploaded", { sport: next.sport, segments: next.segments.length });
     setMultiplayerSession(null);
     setMultiplayerDisplayOptions({});
     setMultiplayerOverlapOnly(false);
@@ -403,6 +452,7 @@ function Index() {
       }
 
       const next = (await res.json()) as MultiplayerSessionData;
+      track("player_added", { participants: next.participant_count });
       activateMultiplayerSession(next);
       setAddPlayerSuccess(
         participantsOverlapInTime(next)
@@ -436,6 +486,7 @@ function Index() {
         throw new Error(await readResponseError(res, "Could not create invite link"));
       }
       const { id } = (await res.json()) as { id: string };
+      track("invite_link_created");
       setInviteLink(`${window.location.origin}/join/${id}`);
       // Remember the group on the creator's side so they can sync in new players,
       // and put ?group=<id> in the URL so a plain refresh re-fetches too.
@@ -522,6 +573,7 @@ function Index() {
 
   const splitSelectedSegment = () => {
     if (!data || !selectedSegment || selectedSegment.point_count < 4) return;
+    track("segment_edited", { action: "split" });
 
     const splitIdx = Math.round(sessionPlayback.idx);
     if (splitIdx <= selectedSegment.start_idx || splitIdx >= selectedSegment.end_idx) return;
@@ -561,6 +613,7 @@ function Index() {
     if (!data) return;
     const segment = data.segments.find((candidate) => candidate.segment_id === segmentId);
     if (!segment || endIdx <= startIdx) return;
+    track("segment_edited", { action: "boundary_adjust" });
 
     const updated = buildSegmentFromRange({
       points: data.points,
@@ -605,6 +658,7 @@ function Index() {
 
   const deleteSelectedSegment = () => {
     if (!data || !selectedSegment) return;
+    track("segment_edited", { action: "delete" });
 
     setData({
       ...data,
@@ -624,6 +678,7 @@ function Index() {
 
   const addSegmentAtPlayhead = (startIdx: number, endIdx: number, label?: string) => {
     if (!data || data.points.length < 2) return;
+    track("segment_edited", { action: "add" });
     if (endIdx <= startIdx) return;
 
     const nextId =

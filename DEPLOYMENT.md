@@ -9,9 +9,14 @@ Set these in the frontend host, such as Vercel or Netlify:
 ```bash
 VITE_API_BASE_URL=https://your-backend.example.com
 VITE_MAPTILER_API_KEY=your-maptiler-api-key
+# Optional — product analytics (PostHog). Omit to disable analytics entirely.
+VITE_PUBLIC_POSTHOG_KEY=phc_your_project_key
+VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
 `VITE_API_BASE_URL` is used by the upload and Strava import UI. For local development it falls back to `http://127.0.0.1:8000`.
+
+Product analytics (PostHog) only runs when `VITE_PUBLIC_POSTHOG_KEY` is set — leave it unset for local dev or any deploy where you don't want analytics. Autocapture is off; only explicit feature events are sent, never GPS data. Opt-in segmentation-correction training data is separate (backend `POINTTRACER_TRAINING_DB_PATH`) and only sent when the user enables "Help improve auto-segmentation" in Settings.
 
 ## Backend Environment
 
