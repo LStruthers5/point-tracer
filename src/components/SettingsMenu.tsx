@@ -118,6 +118,12 @@ export function SettingsMenu({ settings, onChange }: SettingsMenuProps) {
             checked={settings.reducedAnimation}
             onCheckedChange={(checked) => update("reducedAnimation", checked)}
           />
+          <SettingSwitch
+            label="Help improve auto-segmentation"
+            description="Share your corrected segments and the activity's GPS track so PointTracer can train a better auto-segmenter. Off by default; you can turn it off anytime."
+            checked={settings.shareTrainingData}
+            onCheckedChange={(checked) => update("shareTrainingData", checked)}
+          />
         </div>
       </PopoverContent>
     </Popover>

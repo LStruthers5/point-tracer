@@ -16,6 +16,8 @@ export interface AppSettings {
   showPaceGraph: boolean;
   showHeartRateChart: boolean;
   reducedAnimation: boolean;
+  /** Opt-in: share corrected segmentations (incl. the activity GPS track) to improve the model. */
+  shareTrainingData: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -30,4 +32,5 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showPaceGraph: true,
   showHeartRateChart: true,
   reducedAnimation: false,
+  shareTrainingData: false,
 };

@@ -16,6 +16,7 @@ from app.services.multiplayer import (
 )
 from app.services import strava
 from app.services import group_sessions
+from app.services import training_store
 
 
 strava.load_backend_env()
@@ -426,6 +427,37 @@ async def join_group_session(
 
     group_sessions.update_group(group_id, json.dumps(combined))
     return combined
+
+
+@app.post("/api/training/segmentation")
+async def submit_segmentation_correction(request: Request) -> dict:
+    """
+    Store an opt-in segmentation correction (corrected boundaries + GPS track)
+    as labeled training data. One row per activity (upsert by activity_key).
+    """
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.") from exc
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object.")
+
+    activity_key = str(body.get("activity_key") or "").strip()
+    if not activity_key:
+        raise HTTPException(status_code=400, detail="activity_key is required.")
+
+    payload_json = json.dumps(body)
+    if len(payload_json.encode("utf-8")) > MAX_EXISTING_SESSION_BYTES:
+        raise HTTPException(status_code=413, detail="Correction payload is too large.")
+
+    training_store.save_correction(
+        activity_key,
+        str(body.get("sport") or "unknown"),
+        str(body.get("source_file") or ""),
+        payload_json,
+    )
+    return {"ok": True}
 
 
 @app.get("/api/strava/connect")
