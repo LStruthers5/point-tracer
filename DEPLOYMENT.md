@@ -23,18 +23,22 @@ Product analytics (PostHog) only runs when `VITE_PUBLIC_POSTHOG_KEY` is set — 
 Set these in the backend host, such as Render, Fly.io, or Railway:
 
 ```bash
-STRAVA_CLIENT_ID=your-strava-client-id
-STRAVA_CLIENT_SECRET=your-strava-client-secret
-STRAVA_REDIRECT_URI=https://your-backend.example.com/api/strava/callback
 POINTTRACER_FRONTEND_URL=https://your-frontend.example.com
 POINTTRACER_CORS_ORIGINS=https://your-frontend.example.com
-STRAVA_TOKEN_DB_PATH=/persistent/path/strava_tokens.sqlite3
-POINTTRACER_GROUP_DB_PATH=/persistent/path/group_sessions.sqlite3
+# Postgres connection string — persists invite-link sessions + opt-in training data.
+# On Railway, add a PostgreSQL service and reference it: DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+# Strava stays OFF for v1 — leave all STRAVA_* unset and the Connect button hides.
+# Enable later only with the per-user auth work (see STRAVA_AUTH_SPEC.md):
+# STRAVA_CLIENT_ID=...
+# STRAVA_CLIENT_SECRET=...
+# STRAVA_REDIRECT_URI=https://your-backend.example.com/api/strava/callback
+# STRAVA_WEBHOOK_VERIFY_TOKEN=...
 ```
 
-`POINTTRACER_GROUP_DB_PATH` stores multiplayer invite-link sessions (SQLite, auto-expires after 30 days). Point it at a persistent disk so invite links survive restarts; if omitted it defaults next to the backend package.
+**Persistence:** invite-link group sessions and opt-in segmentation training data are stored via `DATABASE_URL` (Postgres) in production — this survives redeploys with **no volume to manage**. If `DATABASE_URL` is unset (local dev), the app falls back to a single local SQLite file. Tables are created automatically on first use; there are no migrations to run.
 
-For local development, copy `backend/.env.example` to `backend/.env` and fill in local values. `backend/.env` is ignored by git.
+For local development, copy `backend/.env.example` to `backend/.env` and fill in local values (leave `DATABASE_URL` unset to use local SQLite). `backend/.env` is ignored by git.
 
 ## Build Commands
 

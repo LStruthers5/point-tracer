@@ -18,6 +18,8 @@ export interface AppSettings {
   reducedAnimation: boolean;
   /** Opt-in: share corrected segmentations (incl. the activity GPS track) to improve the model. */
   shareTrainingData: boolean;
+  /** Whether the user has been shown the one-time training-data consent prompt. */
+  trainingConsentPrompted: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -33,4 +35,5 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showHeartRateChart: true,
   reducedAnimation: false,
   shareTrainingData: false,
+  trainingConsentPrompted: false,
 };
