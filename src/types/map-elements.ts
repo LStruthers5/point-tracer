@@ -10,6 +10,24 @@ export interface MapElementBase {
   label: string;
 }
 
+export interface FieldZone {
+  id: string;
+  label: string;
+  /** Normalized rectangle bounds across field width/height. */
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  color?: string;
+}
+
+export interface FieldZoneSet {
+  id: string;
+  label: string;
+  prompt?: string;
+  zones: FieldZone[];
+}
+
 export interface FieldMapElement extends MapElementBase {
   type: "field";
   center: {
@@ -21,6 +39,7 @@ export interface FieldMapElement extends MapElementBase {
   rotationDeg: number;
   /** Sport-specific court/field template. Undefined = generic blank field. */
   template?: CourtTemplate;
+  zoneSet?: FieldZoneSet;
 }
 
 export interface PinMapElement extends MapElementBase {
