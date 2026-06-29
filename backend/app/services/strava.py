@@ -42,6 +42,7 @@ STREAM_KEYS = [
     "cadence",
     "temp",
 ]
+TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -60,6 +61,7 @@ _env_loaded = False
 
 
 def build_authorization_url() -> str:
+    require_enabled()
     client_id = get_env("STRAVA_CLIENT_ID")
     redirect_uri = get_env("STRAVA_REDIRECT_URI")
     global _oauth_state
@@ -84,6 +86,7 @@ def exchange_code_for_token(
     *,
     accepted_scope: str | None = None,
 ) -> StravaToken:
+    require_enabled()
     if not code:
         raise StravaError("Missing Strava OAuth code.")
     if not _oauth_state or state != _oauth_state:
@@ -108,18 +111,40 @@ def exchange_code_for_token(
 
 def is_configured() -> bool:
     load_backend_env()
+    if not is_enabled():
+        return False
     return all(
         os.environ.get(name)
         for name in ("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET", "STRAVA_REDIRECT_URI")
     )
 
 
+def is_enabled() -> bool:
+    load_backend_env()
+    return os.environ.get("POINTTRACER_ENABLE_STRAVA_IMPORT", "").strip().lower() in TRUE_ENV_VALUES
+
+
+def require_enabled() -> None:
+    if not is_enabled():
+        raise StravaConfigError("Strava import is disabled for this deployment.")
+
+
 def get_connection_status() -> dict[str, Any]:
+    if not is_enabled():
+        return {
+            "connected": False,
+            "configured": False,
+            "enabled": False,
+            "required_scopes": sorted(REQUIRED_SCOPES),
+            "storage": "local_sqlite",
+        }
+
     token = get_token()
     if token is None:
         return {
             "connected": False,
             "configured": is_configured(),
+            "enabled": True,
             "required_scopes": sorted(REQUIRED_SCOPES),
             "storage": "local_sqlite",
         }
@@ -134,6 +159,7 @@ def get_connection_status() -> dict[str, Any]:
     return {
         "connected": not missing,
         "configured": is_configured(),
+        "enabled": True,
         "athlete": token.athlete,
         "athlete_id": athlete_id_from_token(token),
         "scope": token.scope,
@@ -227,6 +253,7 @@ def apply_strava_stream_overrides(
 
 
 def require_valid_token() -> StravaToken:
+    require_enabled()
     token = get_token()
     if token is None:
         raise StravaAuthError("Strava is not connected.")

@@ -140,10 +140,9 @@ function JoinPage() {
               <div className="mt-4 flex gap-2.5 rounded-xl border border-border/60 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <p>
-                  Per Strava's API rules, you can only use your{" "}
-                  <strong className="text-foreground">own</strong> data. Export your matching
-                  activity from Strava (open it → ⋯ menu → <em>Export GPX</em>) or use the .gpx/.fit
-                  from your watch, then upload it below. Your file stays tied to this shared replay.
+                  Use your <strong className="text-foreground">own</strong> matching activity.
+                  Export a GPX/FIT file from your watch or training app, then upload it below.
+                  Your file stays tied to this shared replay.
                 </p>
               </div>
 

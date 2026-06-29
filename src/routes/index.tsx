@@ -34,6 +34,7 @@ import { EditControls } from "@/components/EditControls";
 import { MultiPlayerPanel } from "@/components/MultiPlayerPanel";
 import { SessionMap } from "@/components/SessionMap";
 import { UploadPanel } from "@/components/UploadPanel";
+import { GpxFileGuide } from "@/components/GpxFileGuide";
 import { PlaybackControls } from "@/components/PlaybackControls";
 import { PaceGraph } from "@/components/PaceGraph";
 import { SettingsMenu } from "@/components/SettingsMenu";
@@ -826,16 +827,13 @@ function Index() {
             <SettingsMenu settings={settings} onChange={setSettings} />
           </header>
           <div className="flex-1 overflow-y-auto">
-            <UploadPanel onUploaded={handleUploaded} units={settings.units} />
             <div className="p-4 space-y-4">
-              <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 p-6 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <FolderOpen className="h-5 w-5" />
+              <UploadPanel onUploaded={handleUploaded} units={settings.units} variant="onboarding" />
+              <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Get a file
                 </div>
-                <h2 className="mt-4 text-xl font-bold text-foreground">No activity loaded yet</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Upload a GPX/FIT file or connect Strava above.
-                </p>
+                <GpxFileGuide compact />
               </div>
               <UtilitySidebar
                 displayOptions={mapDisplayOptions}
@@ -867,11 +865,6 @@ function Index() {
           </div>
         </header>
 
-        <UploadPanel
-          onUploaded={handleUploaded}
-          units={settings.units}
-        />
-
         <ResizablePanelGroup orientation="horizontal" className="flex-1 overflow-hidden">
           <ResizablePanel defaultSize="18rem" minSize="14rem" maxSize="34rem">
             <aside className="flex h-full flex-col gap-3 overflow-y-auto border-r border-border/30 p-3">
@@ -883,7 +876,7 @@ function Index() {
                   Upload an activity
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Start with a GPX/FIT upload or connect Strava to import one of your activities.
+                  Choose a GPX/FIT file from your watch or training app.
                 </p>
               </div>
               <UtilitySidebar
@@ -904,18 +897,15 @@ function Index() {
           </ResizablePanel>
           <ResizableHandle withHandle className="bg-border/40" />
           <ResizablePanel minSize="28rem">
-            <main className="flex h-full items-center justify-center p-6">
-              <div className="max-w-xl rounded-3xl border border-dashed border-border/70 bg-card/50 p-8 text-center shadow-sm">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <FolderOpen className="h-6 w-6" />
+            <main className="flex h-full items-center justify-center overflow-y-auto p-6">
+              <div className="w-full max-w-4xl space-y-5">
+                <UploadPanel onUploaded={handleUploaded} units={settings.units} variant="onboarding" />
+                <div className="mt-6 border-t border-border/50 pt-6">
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    Get a file
+                  </div>
+                  <GpxFileGuide />
                 </div>
-                <h2 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
-                  No activity loaded yet
-                </h2>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Upload a GPX/FIT file or connect Strava above. Your reviewed activities autosave
-                  locally in this browser and will appear in the Activity Library.
-                </p>
               </div>
             </main>
           </ResizablePanel>
@@ -1811,10 +1801,9 @@ function AddPlayerDialog({
         <div className="flex gap-2.5 rounded-xl border border-border/60 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <p>
-            Per Strava's API rules, each athlete may only use their{" "}
-            <strong className="text-foreground">own</strong> data. Every player must export and
-            provide their own GPX/FIT file — in Strava, open the activity → ⋯ menu →{" "}
-            <em>Export GPX</em>. You can't pull a teammate's data for them.
+            Each athlete should provide their <strong className="text-foreground">own</strong>{" "}
+            GPX/FIT file from their watch or training app. You can't pull a teammate's data for
+            them.
           </p>
         </div>
 
