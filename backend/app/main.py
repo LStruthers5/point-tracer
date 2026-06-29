@@ -62,6 +62,11 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_EXISTING_SESSION_BYTES = 25 * 1024 * 1024  # 25 MB
 
 
+def require_strava_import_enabled() -> None:
+    if not strava.is_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+
+
 async def read_existing_multiplayer_sources(
     existing_session_json: str | None,
     existing_session_file: UploadFile | None,
@@ -462,6 +467,7 @@ async def submit_segmentation_correction(request: Request) -> dict:
 
 @app.get("/api/strava/connect")
 def connect_strava() -> RedirectResponse:
+    require_strava_import_enabled()
     try:
         return RedirectResponse(strava.build_authorization_url())
     except strava.StravaConfigError as exc:
@@ -475,6 +481,7 @@ def strava_callback(
     scope: str | None = None,
     error: str | None = None,
 ) -> RedirectResponse:
+    require_strava_import_enabled()
     if error:
         return RedirectResponse(strava.get_frontend_redirect_url("error", error))
 
@@ -497,6 +504,7 @@ def strava_activities(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=50),
 ) -> dict:
+    require_strava_import_enabled()
     try:
         return strava.fetch_recent_activities(page=page, per_page=per_page)
     except strava.StravaAuthError as exc:
@@ -516,6 +524,7 @@ def strava_webhook_verify(
     hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
 ) -> dict:
     """Strava webhook subscription verification (GET hub.challenge echo)."""
+    require_strava_import_enabled()
     if hub_mode != "subscribe" or not hub_challenge:
         raise HTTPException(status_code=400, detail="Invalid webhook verification request.")
     expected = os.environ.get("STRAVA_WEBHOOK_VERIFY_TOKEN", "")
@@ -527,6 +536,7 @@ def strava_webhook_verify(
 @app.post("/api/strava/webhook")
 async def strava_webhook_event(request: Request) -> dict:
     """Strava webhook push events — handles athlete deauthorization."""
+    require_strava_import_enabled()
     try:
         event = await request.json()
     except Exception:
@@ -543,6 +553,7 @@ async def strava_webhook_event(request: Request) -> dict:
 
 @app.post("/api/strava/disconnect")
 def disconnect_strava() -> dict:
+    require_strava_import_enabled()
     strava.disconnect()
     return {"connected": False}
 
@@ -557,6 +568,7 @@ async def import_strava_activity(
     reset_area_lat: float | None = Form(default=None),
     reset_area_lon: float | None = Form(default=None),
 ) -> dict:
+    require_strava_import_enabled()
     normalized_sport = sport.strip().lower() or None
 
     normalized_segmentation_mode = segmentation_mode.strip().lower()

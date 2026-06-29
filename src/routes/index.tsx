@@ -834,7 +834,7 @@ function Index() {
                 </div>
                 <h2 className="mt-4 text-xl font-bold text-foreground">No activity loaded yet</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Upload a GPX/FIT file or connect Strava above.
+                  Upload a GPX/FIT file, or use Get a file for export steps.
                 </p>
               </div>
               <UtilitySidebar
@@ -883,7 +883,7 @@ function Index() {
                   Upload an activity
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Start with a GPX/FIT upload or connect Strava to import one of your activities.
+                  Start with a GPX/FIT upload. Need one? Use Get a file in the upload bar.
                 </p>
               </div>
               <UtilitySidebar
@@ -913,8 +913,8 @@ function Index() {
                   No activity loaded yet
                 </h2>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Upload a GPX/FIT file or connect Strava above. Your reviewed activities autosave
-                  locally in this browser and will appear in the Activity Library.
+                  Upload a GPX/FIT file from your watch or training app. Your reviewed activities
+                  autosave locally in this browser and will appear in the Activity Library.
                 </p>
               </div>
             </main>
@@ -1811,10 +1811,9 @@ function AddPlayerDialog({
         <div className="flex gap-2.5 rounded-xl border border-border/60 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <p>
-            Per Strava's API rules, each athlete may only use their{" "}
-            <strong className="text-foreground">own</strong> data. Every player must export and
-            provide their own GPX/FIT file — in Strava, open the activity → ⋯ menu →{" "}
-            <em>Export GPX</em>. You can't pull a teammate's data for them.
+            Each athlete should provide their <strong className="text-foreground">own</strong>{" "}
+            GPX/FIT file from their watch or training app. You can't pull a teammate's data for
+            them.
           </p>
         </div>
 

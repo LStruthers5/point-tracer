@@ -12,10 +12,12 @@ docs and API Agreement (effective June 1, 2026).
 | **Up to 10 athletes** | 10 | Self-service: fill out the Developer Program form (link below) |
 | **Beyond 10 athletes** | Negotiated | Submit an app review — not guaranteed, no SLA |
 
-**Current PointTracer status:** The token store holds a single row (`id = 1`),
-so only one Strava account can be connected at a time regardless of Strava's
-tier. This matches Single Player Mode by design. Expanding to multiple users
-requires a multi-token store and a successful tier-2 review.
+**Current PointTracer status:** The public build should keep Strava hidden and
+disabled. The private tester build can explicitly opt in with
+`VITE_ENABLE_STRAVA_IMPORT=true` and `POINTTRACER_ENABLE_STRAVA_IMPORT=true`.
+The token store still holds a single row (`id = 1`), so only one Strava account
+can be connected at a time regardless of Strava's tier. Expanding to multiple
+users requires a multi-token store and a successful tier-2 review.
 
 ## Rate Limits (2026)
 
@@ -66,10 +68,13 @@ From the Strava API Agreement:
 > "Strava Data provided by a specific user can only be displayed or disclosed
 > in your Developer Application to that user."
 
-PointTracer is compliant:
+PointTracer is suitable for a private owner/tester build when access is tightly
+controlled:
 - Tokens are stored backend-only; never exposed to the browser.
-- Each imported activity is returned only to the requesting user's session.
-- The token store holds only one athlete at a time — no cross-user data exposure is possible.
+- Public deployments now keep Strava import disabled by default.
+- The current single-row token store is not acceptable for a public multi-user
+  Strava launch because any visitor to a Strava-enabled build could interact
+  with the one connected athlete's activities.
 
 If you expand to multi-user: each user must only see their own Strava data.
 Sharing imported GPS data between users (e.g. multiplayer replay) is only

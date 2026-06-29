@@ -9,12 +9,14 @@ Set these in the frontend host, such as Vercel or Netlify:
 ```bash
 VITE_API_BASE_URL=https://your-backend.example.com
 VITE_MAPTILER_API_KEY=your-maptiler-api-key
+# Public default: keep Strava OAuth/import UI hidden. Set to true only on the private tester frontend.
+VITE_ENABLE_STRAVA_IMPORT=false
 # Optional — product analytics (PostHog). Omit to disable analytics entirely.
 VITE_PUBLIC_POSTHOG_KEY=phc_your_project_key
 VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-`VITE_API_BASE_URL` is used by the upload and Strava import UI. For local development it falls back to `http://127.0.0.1:8000`.
+`VITE_API_BASE_URL` is used by upload and optional private Strava import UI. For local development it falls back to `http://127.0.0.1:8000`. `VITE_ENABLE_STRAVA_IMPORT` must be `true` before any Strava connection controls are rendered.
 
 Product analytics (PostHog) only runs when `VITE_PUBLIC_POSTHOG_KEY` is set — leave it unset for local dev or any deploy where you don't want analytics. Autocapture is off; only explicit feature events are sent, never GPS data. Opt-in segmentation-correction training data is separate (backend `POINTTRACER_TRAINING_DB_PATH`) and only sent when the user enables "Help improve auto-segmentation" in Settings.
 
@@ -28,8 +30,9 @@ POINTTRACER_CORS_ORIGINS=https://your-frontend.example.com
 # Postgres connection string — persists invite-link sessions + opt-in training data.
 # On Railway, add a PostgreSQL service and reference it: DATABASE_URL=${{Postgres.DATABASE_URL}}
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
-# Strava stays OFF for v1 — leave all STRAVA_* unset and the Connect button hides.
-# Enable later only with the per-user auth work (see STRAVA_AUTH_SPEC.md):
+# Strava stays OFF for public v1 — this gate keeps OAuth/import routes closed.
+POINTTRACER_ENABLE_STRAVA_IMPORT=false
+# Private tester build only: set this to true and fill in STRAVA_* below.
 # STRAVA_CLIENT_ID=...
 # STRAVA_CLIENT_SECRET=...
 # STRAVA_REDIRECT_URI=https://your-backend.example.com/api/strava/callback
@@ -70,15 +73,20 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend
 
 For Railway public networking, set the generated service domain target port to `8000`.
 
-## Strava Production Setup
+## Private Strava Tester Setup
 
-In the Strava app dashboard:
+The public production build should keep both Strava gates disabled:
+
+- Frontend: `VITE_ENABLE_STRAVA_IMPORT=false`
+- Backend: `POINTTRACER_ENABLE_STRAVA_IMPORT=false`
+
+For a private tester build, enable both gates and configure the Strava app dashboard:
 
 - Set the authorization callback domain to your backend domain.
 - Set `STRAVA_REDIRECT_URI` to the deployed callback URL.
 - Keep `STRAVA_CLIENT_SECRET` backend-only.
 
-The current Strava token store is local SQLite. That is acceptable for a first hosted demo only if the host has persistent disk. Before a broader public launch, move token storage to a managed database and encrypt tokens at rest.
+The current Strava token store is still single-row local SQLite. That is acceptable only for an owner/private tester build where you control who can access it. Before a broader public Strava launch, move to per-user token storage and encrypt tokens at rest.
 
 ## CORS — the #1 deploy-day gotcha
 
@@ -118,7 +126,8 @@ in the console. A 200 with rendered segments means CORS is correct.
 
 1. Open `/api/health` on the backend.
 2. Open the frontend and upload a GPX/FIT file.
-3. Connect Strava and import one activity.
+3. Upload one GPX/FIT file.
+4. On private tester builds only, connect Strava and import one activity.
 4. Confirm MapTiler tiles load in street, satellite, and dark styles.
 5. Confirm export opens without local-only URLs in the console.
 6. In DevTools → Network, confirm no CORS-blocked requests (see CORS section above).

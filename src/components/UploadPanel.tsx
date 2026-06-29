@@ -8,6 +8,8 @@ import {
   RadioTower,
   RefreshCw,
   Unlink,
+  CircleHelp,
+  ExternalLink,
 } from "lucide-react";
 import {
   Select,
@@ -17,6 +19,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { UnitSystem } from "@/types/app-settings";
 import type { SessionData } from "@/types/session";
 
@@ -24,6 +34,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8000";
 const ENDPOINT = `${API_BASE}/api/upload/gpx`;
+const ENABLE_STRAVA_IMPORT = import.meta.env.VITE_ENABLE_STRAVA_IMPORT === "true";
 
 const SPORTS = [
   { value: "ultimate", label: "Ultimate" },
@@ -42,6 +53,57 @@ const SEGMENTATION_MODES: Array<{ value: SegmentationMode; label: string }> = [
   { value: "time", label: "Time splits" },
   { value: "manual", label: "Manual review" },
 ];
+
+const GPX_EXPORT_GUIDES = [
+  {
+    id: "strava",
+    label: "Strava",
+    title: "Export GPX from Strava",
+    note: "Works best from the Strava website. You can export your own GPS activities individually.",
+    sourceUrl: "https://support.strava.com/hc/en-us/articles/216918437-Exporting-your-Data-and-Bulk-Export",
+    steps: [
+      "Open strava.com in a browser and go to the activity you want to review.",
+      "Use the activity actions menu and choose Export GPX. If you see Export Original instead, that file is usually a FIT file and works too.",
+      "Upload the downloaded .gpx or .fit file to PointTracer.",
+    ],
+  },
+  {
+    id: "garmin",
+    label: "Garmin",
+    title: "Export GPX or FIT from Garmin Connect",
+    note: "Use Garmin Connect on the web for the cleanest file export flow.",
+    sourceUrl: "https://support.garmin.com/",
+    steps: [
+      "Open connect.garmin.com and select the activity from Activities.",
+      "Open the activity settings menu and choose Export to GPX or Export Original.",
+      "Upload the downloaded .gpx or original .fit file to PointTracer.",
+    ],
+  },
+  {
+    id: "apple",
+    label: "Apple",
+    title: "Use an Apple workout route",
+    note: "Apple's built-in Health export is not a simple GPX/FIT download, so this path often needs an exporter app or a synced service.",
+    sourceUrl: "https://support.apple.com/guide/iphone/share-your-health-data-iph27f6325b2/ios",
+    steps: [
+      "If your Apple Watch workout is synced to Strava, Garmin, or COROS, export the file from that service instead.",
+      "If you keep workouts only in Apple Health, use a HealthKit export app that can save the workout as GPX or FIT.",
+      "Upload the exported .gpx or .fit file to PointTracer. Avoid uploading Apple's full Health XML archive directly.",
+    ],
+  },
+  {
+    id: "coros",
+    label: "COROS",
+    title: "Export from COROS",
+    note: "COROS activity exports are available from the workout details/share flow.",
+    sourceUrl: "https://support.coros.com/",
+    steps: [
+      "Open the COROS app and choose the workout you want to review.",
+      "Use the share/export action and select GPX or FIT when available.",
+      "Save the file to your device, then upload it to PointTracer.",
+    ],
+  },
+] as const;
 
 const METERS_PER_MILE = 1609.344;
 const METERS_PER_KILOMETER = 1000;
@@ -95,6 +157,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
   const [stravaHasMore, setStravaHasMore] = useState(false);
   const [showStravaPicker, setShowStravaPicker] = useState(false);
   const [stravaImportingId, setStravaImportingId] = useState<number | null>(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const distanceUnitLabel = units === "metric" ? "km" : "mi";
   const distanceUnitMeters = units === "metric" ? METERS_PER_KILOMETER : METERS_PER_MILE;
@@ -107,6 +170,12 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
     const params = new URLSearchParams(window.location.search);
     const stravaParam = params.get("strava");
     const stravaError = params.get("strava_error");
+    if (!ENABLE_STRAVA_IMPORT) {
+      if (stravaParam || stravaError) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      return;
+    }
     if (stravaParam === "scope_error") {
       setError(
         'Strava connection was declined due to missing permissions. Click "Connect Strava" again and accept all requested scopes.',
@@ -181,6 +250,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
   };
 
   const refreshStravaStatus = async (loadActivities = false) => {
+    if (!ENABLE_STRAVA_IMPORT) return;
     try {
       const res = await fetch(`${API_BASE}/api/strava/status`);
       if (!res.ok) return;
@@ -197,6 +267,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
   };
 
   const loadStravaActivities = async (page = 1, replace = true) => {
+    if (!ENABLE_STRAVA_IMPORT) return;
     setStravaLoading(true);
     setError(null);
     try {
@@ -227,6 +298,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
   };
 
   const disconnectStrava = async () => {
+    if (!ENABLE_STRAVA_IMPORT) return;
     setStravaLoading(true);
     setError(null);
     try {
@@ -247,6 +319,7 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
   };
 
   const handleStravaImport = async (activity: StravaActivity) => {
+    if (!ENABLE_STRAVA_IMPORT) return;
     if (activity.has_gps_hint === false) {
       setError(activity.unsupported_reason ?? "This Strava activity does not appear to include GPS data.");
       return;
@@ -396,42 +469,53 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         )}
       </Button>
 
-      {stravaStatus?.configured === false && !stravaConnected ? null : (
-        <>
-      <div className="h-6 w-px bg-border/50 mx-1" />
-
       <Button
         type="button"
-        variant={stravaConnected ? "outline" : "secondary"}
+        variant="ghost"
         size="sm"
-        className="h-8 border-amber-500/45 bg-amber-500/15 text-xs font-semibold text-amber-700 hover:border-amber-500 hover:bg-amber-500/25 hover:text-amber-800 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:border-amber-400 dark:hover:bg-amber-500/25 dark:hover:text-amber-50"
-        disabled={stravaLoading || loading}
-        onClick={() => {
-          if (stravaConnected) {
-            void loadStravaActivities(1, true);
-          } else {
-            window.location.href = `${API_BASE}/api/strava/connect`;
-          }
-        }}
+        className="h-8 text-xs"
+        onClick={() => setTutorialOpen(true)}
       >
-        {stravaLoading ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : stravaConnected ? (
-          <RefreshCw className="w-3.5 h-3.5" />
-        ) : (
-          <RadioTower className="w-3.5 h-3.5" />
-        )}
-        {stravaConnected ? "Strava activities" : "Connect Strava"}
+        <CircleHelp className="w-3.5 h-3.5" />
+        Get a file
       </Button>
 
-      {stravaConnected ? (
-        <div className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-500">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {formatAthleteName(stravaStatus?.athlete) ?? "Strava connected"}
-        </div>
-      ) : null}
+      {ENABLE_STRAVA_IMPORT && (stravaStatus?.configured !== false || stravaConnected) ? (
+        <>
+          <div className="h-6 w-px bg-border/50 mx-1" />
+
+          <Button
+            type="button"
+            variant={stravaConnected ? "outline" : "secondary"}
+            size="sm"
+            className="h-8 border-amber-500/45 bg-amber-500/15 text-xs font-semibold text-amber-700 hover:border-amber-500 hover:bg-amber-500/25 hover:text-amber-800 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:border-amber-400 dark:hover:bg-amber-500/25 dark:hover:text-amber-50"
+            disabled={stravaLoading || loading}
+            onClick={() => {
+              if (stravaConnected) {
+                void loadStravaActivities(1, true);
+              } else {
+                window.location.href = `${API_BASE}/api/strava/connect`;
+              }
+            }}
+          >
+            {stravaLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : stravaConnected ? (
+              <RefreshCw className="w-3.5 h-3.5" />
+            ) : (
+              <RadioTower className="w-3.5 h-3.5" />
+            )}
+            {stravaConnected ? "Strava activities" : "Connect Strava"}
+          </Button>
+
+          {stravaConnected ? (
+            <div className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-500">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {formatAthleteName(stravaStatus?.athlete) ?? "Strava connected"}
+            </div>
+          ) : null}
         </>
-      )}
+      ) : null}
 
       {error && (
         <div className="flex items-center gap-1.5 text-[11px] text-destructive">
@@ -446,7 +530,9 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         </div>
       )}
 
-      {showStravaPicker && (
+      <GpxTutorialDialog open={tutorialOpen} onOpenChange={setTutorialOpen} />
+
+      {ENABLE_STRAVA_IMPORT && showStravaPicker && (
         <div className="w-full rounded-xl border border-amber-500/25 bg-background/95 p-3 shadow-lg shadow-amber-950/10">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
@@ -565,6 +651,71 @@ export function UploadPanel({ onUploaded, units }: UploadPanelProps) {
         </div>
       )}
     </div>
+  );
+}
+
+function GpxTutorialDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="z-[2400] max-h-[88vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Get your GPX or FIT file</DialogTitle>
+          <DialogDescription>
+            PointTracer reads .gpx and .fit files from your own workouts. Pick the place your
+            activity already lives, export it, then upload the downloaded file here.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs defaultValue="strava" className="w-full">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+            {GPX_EXPORT_GUIDES.map((guide) => (
+              <TabsTrigger key={guide.id} value={guide.id} className="text-xs">
+                {guide.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {GPX_EXPORT_GUIDES.map((guide) => (
+            <TabsContent key={guide.id} value={guide.id} className="mt-4 space-y-4">
+              <div className="rounded-xl border border-border/60 bg-card/45 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">{guide.title}</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{guide.note}</p>
+                  </div>
+                  <a
+                    href={guide.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-2.5 text-xs font-medium text-foreground transition hover:bg-accent"
+                  >
+                    Official help
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+
+                <ol className="mt-4 space-y-2 text-sm text-foreground">
+                  {guide.steps.map((step, index) => (
+                    <li key={step} className="flex gap-2.5">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[11px] font-semibold text-primary">
+                        {index + 1}
+                      </span>
+                      <span className="leading-6">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </TabsContent>
+          ))}
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   );
 }
 
