@@ -225,9 +225,13 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
     setStravaLoading(true);
     setError(null);
     try {
-      const res = await fetchOrExplain(`${API_BASE}/api/strava/activities?page=${page}&per_page=20`);
+      const res = await fetchOrExplain(
+        `${API_BASE}/api/strava/activities?page=${page}&per_page=20`,
+      );
       if (res.status === 429) {
-        throw new Error("Strava rate limit reached. Too many requests — try again in a few minutes.");
+        throw new Error(
+          "Strava rate limit reached. Too many requests — try again in a few minutes.",
+        );
       }
       if (!res.ok) {
         throw new Error(await readError(res, "Could not load Strava activities"));
@@ -238,7 +242,7 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
         has_more?: boolean;
       };
       setStravaActivities((current) =>
-        replace ? data.activities ?? [] : [...current, ...(data.activities ?? [])],
+        replace ? (data.activities ?? []) : [...current, ...(data.activities ?? [])],
       );
       setStravaPage(data.page ?? page);
       setStravaHasMore(Boolean(data.has_more));
@@ -275,7 +279,9 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
   const handleStravaImport = async (activity: StravaActivity) => {
     if (!ENABLE_STRAVA_IMPORT) return;
     if (activity.has_gps_hint === false) {
-      setError(activity.unsupported_reason ?? "This Strava activity does not appear to include GPS data.");
+      setError(
+        activity.unsupported_reason ?? "This Strava activity does not appear to include GPS data.",
+      );
       return;
     }
     setStravaImportingId(activity.id);
@@ -291,7 +297,9 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
         body: form,
       });
       if (res.status === 429) {
-        throw new Error("Strava rate limit reached. Too many requests — try again in a few minutes.");
+        throw new Error(
+          "Strava rate limit reached. Too many requests — try again in a few minutes.",
+        );
       }
       if (!res.ok) {
         throw new Error(await readError(res, "Strava import failed"));
@@ -336,7 +344,9 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
 
   const sportControl = (
     <Select value={sport} onValueChange={setSport} disabled={loading}>
-      <SelectTrigger className={variant === "onboarding" ? "h-10 w-full text-sm" : "h-8 w-32 text-xs"}>
+      <SelectTrigger
+        className={variant === "onboarding" ? "h-10 w-full text-sm" : "h-8 w-32 text-xs"}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="z-[2400]">
@@ -473,142 +483,147 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
     </div>
   ) : null;
 
-  const stravaPicker = ENABLE_STRAVA_IMPORT && showStravaPicker ? (
-    <div className="w-full rounded-xl border border-amber-500/25 bg-background/95 p-3 shadow-lg shadow-amber-950/10">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-500">
-            Recent Strava activities
+  const stravaPicker =
+    ENABLE_STRAVA_IMPORT && showStravaPicker ? (
+      <div className="w-full rounded-xl border border-amber-500/25 bg-background/95 p-3 shadow-lg shadow-amber-950/10">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-500">
+              Recent Strava activities
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Choose one of your own Strava activities to import into the normal review flow.
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground">
-            Choose one of your own Strava activities to import into the normal review flow.
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
+              disabled={stravaLoading}
+              onClick={() => void loadStravaActivities(1, true)}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
+              disabled={stravaLoading}
+              onClick={() => void disconnectStrava()}
+            >
+              <Unlink className="h-3.5 w-3.5" />
+              Disconnect
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs hover:bg-amber-500/10 hover:text-amber-500"
+              onClick={() => setShowStravaPicker(false)}
+            >
+              Close
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
-            disabled={stravaLoading}
-            onClick={() => void loadStravaActivities(1, true)}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-muted-foreground hover:bg-amber-500/10 hover:text-amber-500"
-            disabled={stravaLoading}
-            onClick={() => void disconnectStrava()}
-          >
-            <Unlink className="h-3.5 w-3.5" />
-            Disconnect
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs hover:bg-amber-500/10 hover:text-amber-500"
-            onClick={() => setShowStravaPicker(false)}
-          >
-            Close
-          </Button>
-        </div>
-      </div>
-      <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
-        {stravaLoading && stravaActivities.length === 0 ? (
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-muted-foreground">
-            <Loader2 className="mb-2 h-4 w-4 animate-spin text-amber-500" />
-            Loading recent activities…
-          </div>
-        ) : null}
-        {stravaActivities.length === 0 && !stravaLoading ? (
-          <div className="rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
-            No recent Strava activities were returned. Try reconnecting if this looks wrong.
-          </div>
-        ) : null}
-        {stravaActivities.map((activity) => (
-          <button
-            key={activity.id}
-            type="button"
-            className="rounded-lg border border-border/60 bg-card/60 p-3 text-left transition hover:border-amber-500/80 hover:bg-amber-500/10 focus-visible:border-amber-500/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={stravaImportingId !== null || activity.has_gps_hint === false}
-            onClick={() => void handleStravaImport(activity)}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-foreground">
-                  {activity.name}
+        <div className="grid max-h-64 gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
+          {stravaLoading && stravaActivities.length === 0 ? (
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-muted-foreground">
+              <Loader2 className="mb-2 h-4 w-4 animate-spin text-amber-500" />
+              Loading recent activities…
+            </div>
+          ) : null}
+          {stravaActivities.length === 0 && !stravaLoading ? (
+            <div className="rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
+              No recent Strava activities were returned. Try reconnecting if this looks wrong.
+            </div>
+          ) : null}
+          {stravaActivities.map((activity) => (
+            <button
+              key={activity.id}
+              type="button"
+              className="rounded-lg border border-border/60 bg-card/60 p-3 text-left transition hover:border-amber-500/80 hover:bg-amber-500/10 focus-visible:border-amber-500/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={stravaImportingId !== null || activity.has_gps_hint === false}
+              onClick={() => void handleStravaImport(activity)}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-foreground">
+                    {activity.name}
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {activity.sport_type} · {formatActivityDate(activity.start_date)}
+                  </div>
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {activity.sport_type} · {formatActivityDate(activity.start_date)}
-                </div>
+                {stravaImportingId === activity.id ? (
+                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
+                ) : null}
               </div>
-              {stravaImportingId === activity.id ? (
-                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
+              <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                <span>{formatDistance(activity.distance_m, units)}</span>
+                <span>{formatDuration(activity.moving_time_s ?? activity.elapsed_time_s)}</span>
+                <span>{formatSportMapping(activity.pointtracer_sport)}</span>
+                {activity.has_heartrate ? <span className="text-amber-500">HR</span> : null}
+              </div>
+              {activity.has_gps_hint === false ? (
+                <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-500">
+                  Missing GPS streams for map review.
+                </div>
               ) : null}
-            </div>
-            <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span>{formatDistance(activity.distance_m, units)}</span>
-              <span>{formatDuration(activity.moving_time_s ?? activity.elapsed_time_s)}</span>
-              <span>{formatSportMapping(activity.pointtracer_sport)}</span>
-              {activity.has_heartrate ? <span className="text-amber-500">HR</span> : null}
-            </div>
-            {activity.has_gps_hint === false ? (
-              <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-500">
-                Missing GPS streams for map review.
-              </div>
-            ) : null}
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
+        {stravaHasMore ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-3 h-8 w-full border-amber-500/35 text-xs hover:bg-amber-500/10 hover:text-amber-500"
+            disabled={stravaLoading}
+            onClick={() => void loadStravaActivities(stravaPage + 1, false)}
+          >
+            {stravaLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Load more activities
+          </Button>
+        ) : null}
+        <div className="mt-2.5 text-center text-[10px] text-muted-foreground/60">
+          Powered by{" "}
+          <a
+            href="https://www.strava.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-amber-500/80 hover:text-amber-500"
+          >
+            Strava
+          </a>
+        </div>
       </div>
-      {stravaHasMore ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-3 h-8 w-full border-amber-500/35 text-xs hover:bg-amber-500/10 hover:text-amber-500"
-          disabled={stravaLoading}
-          onClick={() => void loadStravaActivities(stravaPage + 1, false)}
-        >
-          {stravaLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Load more activities
-        </Button>
-      ) : null}
-      <div className="mt-2.5 text-center text-[10px] text-muted-foreground/60">
-        Powered by{" "}
-        <a
-          href="https://www.strava.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-amber-500/80 hover:text-amber-500"
-        >
-          Strava
-        </a>
-      </div>
-    </div>
-  ) : null;
+    ) : null;
 
   if (variant === "onboarding") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3.5">
         {fileInput}
         <button
           type="button"
           onClick={chooseFile}
           disabled={loading}
-          className="group w-full rounded-3xl border border-dashed border-border/70 bg-card/50 p-6 text-center shadow-sm transition hover:border-primary/70 hover:bg-card/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:p-8"
+          className="group w-full rounded-3xl border border-dashed border-border/70 bg-card/50 p-5 text-center shadow-sm transition hover:border-primary/70 hover:bg-card/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:p-6 lg:p-7"
         >
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary transition group-hover:scale-105">
-            {selectedFileLabel ? <CheckCircle2 className="h-6 w-6" /> : <FolderOpen className="h-6 w-6" />}
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition group-hover:scale-105 sm:h-14 sm:w-14">
+            {selectedFileLabel ? (
+              <CheckCircle2 className="h-6 w-6" />
+            ) : (
+              <FolderOpen className="h-6 w-6" />
+            )}
           </div>
-          <h2 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
+          <h2 className="mt-4 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             {selectedFileLabel ? "Ready to upload" : "No activity loaded yet"}
           </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             {selectedFileLabel
               ? selectedFileLabel
               : "Choose a GPX/FIT file from your watch or training app."}
