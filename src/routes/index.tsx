@@ -67,7 +67,12 @@ import {
 } from "@/types/map-display";
 import type { MapElement } from "@/types/map-elements";
 import { DEFAULT_APP_SETTINGS, type AppSettings, type LineColorMode } from "@/types/app-settings";
-import type { MultiplayerSessionData, SessionData, SessionPoint, SessionSegment } from "@/types/session";
+import type {
+  MultiplayerSessionData,
+  SessionData,
+  SessionPoint,
+  SessionSegment,
+} from "@/types/session";
 import { formatDistance, formatDuration } from "@/lib/format";
 import { track } from "@/lib/analytics";
 
@@ -411,7 +416,10 @@ function Index() {
     sessionPlayback.pause();
   };
 
-  const activateMultiplayerSession = (next: MultiplayerSessionData, options?: { resetMapElements?: boolean }) => {
+  const activateMultiplayerSession = (
+    next: MultiplayerSessionData,
+    options?: { resetMapElements?: boolean },
+  ) => {
     setMultiplayerSession(next);
     setMultiplayerDisplayOptions((current) =>
       buildMultiplayerDisplayOptions(next, current, mapDisplayOptions),
@@ -611,7 +619,12 @@ function Index() {
     setShowFullRoute(true);
   };
 
-  const updateSegmentRange = (segmentId: number, startIdx: number, endIdx: number, label?: string) => {
+  const updateSegmentRange = (
+    segmentId: number,
+    startIdx: number,
+    endIdx: number,
+    label?: string,
+  ) => {
     if (!data) return;
     const segment = data.segments.find((candidate) => candidate.segment_id === segmentId);
     if (!segment || endIdx <= startIdx) return;
@@ -828,7 +841,11 @@ function Index() {
           </header>
           <div className="flex-1 overflow-y-auto">
             <div className="p-4 space-y-4">
-              <UploadPanel onUploaded={handleUploaded} units={settings.units} variant="onboarding" />
+              <UploadPanel
+                onUploaded={handleUploaded}
+                units={settings.units}
+                variant="onboarding"
+              />
               <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   Get a file
@@ -860,7 +877,11 @@ function Index() {
         <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
           <GpsLogo />
           <div className="flex items-center gap-2">
-            <ExportMenu disabled onExportVideo={() => undefined} onExportBoundaries={() => undefined} />
+            <ExportMenu
+              disabled
+              onExportVideo={() => undefined}
+              onExportBoundaries={() => undefined}
+            />
             <SettingsMenu settings={settings} onChange={setSettings} />
           </div>
         </header>
@@ -897,14 +918,18 @@ function Index() {
           </ResizablePanel>
           <ResizableHandle withHandle className="bg-border/40" />
           <ResizablePanel minSize="28rem">
-            <main className="flex h-full items-center justify-center overflow-y-auto p-6">
-              <div className="w-full max-w-4xl space-y-5">
-                <UploadPanel onUploaded={handleUploaded} units={settings.units} variant="onboarding" />
-                <div className="mt-6 border-t border-border/50 pt-6">
+            <main className="h-full overflow-y-auto px-6 py-5 lg:px-8 lg:py-6">
+              <div className="mx-auto w-full max-w-5xl space-y-4 pb-8">
+                <UploadPanel
+                  onUploaded={handleUploaded}
+                  units={settings.units}
+                  variant="onboarding"
+                />
+                <div className="border-t border-border/50 pt-4 lg:pt-5">
                   <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     Get a file
                   </div>
-                  <GpxFileGuide />
+                  <GpxFileGuide compact />
                 </div>
               </div>
             </main>
@@ -1034,11 +1059,17 @@ function Index() {
                 <div className="grid grid-cols-2 gap-3">
                   {[
                     { label: "Duration", value: formatDuration(data.summary.duration_min * 60) },
-                    { label: "Distance", value: formatDistance(data.summary.distance_m, settings.units) },
+                    {
+                      label: "Distance",
+                      value: formatDistance(data.summary.distance_m, settings.units),
+                    },
                     { label: "Segments", value: String(data.segments.length) },
                     { label: "Trackpoints", value: data.summary.trackpoint_count.toLocaleString() },
                   ].map(({ label, value }) => (
-                    <div key={label} className="stat-card bg-secondary/50 rounded-xl p-4 cursor-default">
+                    <div
+                      key={label}
+                      className="stat-card bg-secondary/50 rounded-xl p-4 cursor-default"
+                    >
                       <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                         {label}
                       </div>
@@ -1300,10 +1331,7 @@ function Index() {
         onRestoreOriginal={restoreOriginalActivity}
       />
 
-      <UploadPanel
-        onUploaded={handleUploaded}
-        units={settings.units}
-      />
+      <UploadPanel onUploaded={handleUploaded} units={settings.units} />
 
       <AddPlayerBar
         participantCount={multiplayerSession?.participant_count ?? 1}
@@ -1400,7 +1428,9 @@ function Index() {
                     onBasemapStyleChange={setSelectedBasemapStyle}
                     sport={data.sport}
                     multiplayerSession={multiplayerSession}
-                    multiplayerElapsedSeconds={multiplayerSession ? effectiveMultiplayerElapsedSeconds : null}
+                    multiplayerElapsedSeconds={
+                      multiplayerSession ? effectiveMultiplayerElapsedSeconds : null
+                    }
                     multiplayerDisplayOptions={multiplayerDisplayOptions}
                   />
                 </div>
@@ -1477,7 +1507,11 @@ function Index() {
                         <PaceGraph
                           points={data.points}
                           startIdx={selectedSegment.start_idx}
-                          endIdx={getFocusGraphEndIdx(data.segments, selectedIndex, data.points.length)}
+                          endIdx={getFocusGraphEndIdx(
+                            data.segments,
+                            selectedIndex,
+                            data.points.length,
+                          )}
                           selectedStartIdx={selectedSegment.start_idx}
                           selectedEndIdx={selectedSegment.end_idx}
                           segmentHighlights={[selectedSegment]}
@@ -1572,16 +1606,22 @@ function Index() {
               basemapStyle={selectedBasemapStyle}
               onBasemapStyleChange={setSelectedBasemapStyle}
               multiplayerSession={multiplayerSession}
-              multiplayerElapsedSeconds={multiplayerSession ? effectiveMultiplayerElapsedSeconds : null}
+              multiplayerElapsedSeconds={
+                multiplayerSession ? effectiveMultiplayerElapsedSeconds : null
+              }
               multiplayerDisplayOptions={multiplayerDisplayOptions}
             />
 
             <ExpandedMapPlaybackControls
-              label={showFullRoute ? "Session playback" : (selectedSegment?.label ?? "Segment playback")}
+              label={
+                showFullRoute ? "Session playback" : (selectedSegment?.label ?? "Segment playback")
+              }
               playing={showFullRoute ? sessionPlayback.playing : playback.playing}
               idx={showFullRoute ? sessionPlayback.idx : playback.idx}
               totalPoints={showFullRoute ? sessionTotalPoints : totalPoints}
-              durationS={showFullRoute ? data.summary.duration_min * 60 : (selectedSegment?.duration_s ?? 0)}
+              durationS={
+                showFullRoute ? data.summary.duration_min * 60 : (selectedSegment?.duration_s ?? 0)
+              }
               onPlay={showFullRoute ? sessionPlayback.play : playback.play}
               onPause={showFullRoute ? sessionPlayback.pause : playback.pause}
               onRestart={showFullRoute ? sessionPlayback.restart : playback.restart}
@@ -1599,11 +1639,55 @@ function GpsLogo() {
     <div className="flex items-center gap-2">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <circle cx="8" cy="8" r="3" fill="currentColor" className="text-primary" />
-        <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2.5 2" className="text-primary/60" />
-        <line x1="8" y1="1" x2="8" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-        <line x1="8" y1="12.5" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-        <line x1="1" y1="8" x2="3.5" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
-        <line x1="12.5" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
+        <circle
+          cx="8"
+          cy="8"
+          r="5.5"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeDasharray="2.5 2"
+          className="text-primary/60"
+        />
+        <line
+          x1="8"
+          y1="1"
+          x2="8"
+          y2="3.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className="text-primary"
+        />
+        <line
+          x1="8"
+          y1="12.5"
+          x2="8"
+          y2="15"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className="text-primary"
+        />
+        <line
+          x1="1"
+          y1="8"
+          x2="3.5"
+          y2="8"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className="text-primary"
+        />
+        <line
+          x1="12.5"
+          y1="8"
+          x2="15"
+          y2="8"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className="text-primary"
+        />
       </svg>
       <span className="text-sm font-bold tracking-wide text-foreground">PointTracer</span>
     </div>
@@ -1794,7 +1878,8 @@ function AddPlayerDialog({
         <DialogHeader>
           <DialogTitle>Add another athlete</DialogTitle>
           <DialogDescription>
-            Replay multiple athletes on one shared timeline. Each person provides their own activity.
+            Replay multiple athletes on one shared timeline. Each person provides their own
+            activity.
           </DialogDescription>
         </DialogHeader>
 
@@ -1932,101 +2017,105 @@ function MultiplayerParticipantControls({
       </label>
       <div className="space-y-2">
         {multiplayerSession.participants.map((participant, index) => {
-            const options =
-              displayOptions[participant.participant_id] ??
-              getDefaultMultiplayerDisplayOption(participant.label, {
+          const options =
+            displayOptions[participant.participant_id] ??
+            getDefaultMultiplayerDisplayOption(
+              participant.label,
+              {
                 traceMode: "streak",
                 lineColor: "green",
-              }, index);
-            const color = MAP_LINE_COLORS[options.lineColor];
-            return (
-              <div
-                key={participant.participant_id}
-                className="rounded-xl border border-border/50 bg-background/45 p-2"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    className={`h-4 w-4 rounded-full border-2 ${
-                      options.visible ? "border-white/90" : "border-muted-foreground/40 opacity-40"
-                    }`}
-                    style={{ backgroundColor: color }}
-                    onClick={() =>
-                      onUpdateParticipant(participant.participant_id, {
-                        visible: !options.visible,
-                      })
-                    }
-                    title={options.visible ? "Hide player" : "Show player"}
-                  />
-                  <input
-                    value={options.label}
+              },
+              index,
+            );
+          const color = MAP_LINE_COLORS[options.lineColor];
+          return (
+            <div
+              key={participant.participant_id}
+              className="rounded-xl border border-border/50 bg-background/45 p-2"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  className={`h-4 w-4 rounded-full border-2 ${
+                    options.visible ? "border-white/90" : "border-muted-foreground/40 opacity-40"
+                  }`}
+                  style={{ backgroundColor: color }}
+                  onClick={() =>
+                    onUpdateParticipant(participant.participant_id, {
+                      visible: !options.visible,
+                    })
+                  }
+                  title={options.visible ? "Hide player" : "Show player"}
+                />
+                <input
+                  value={options.label}
+                  onChange={(event) =>
+                    onUpdateParticipant(participant.participant_id, {
+                      label: event.target.value,
+                    })
+                  }
+                  className="min-w-0 flex-1 rounded-md border border-border/50 bg-card/60 px-2 py-1 text-xs font-semibold text-foreground outline-none transition focus:border-primary"
+                  aria-label={`Rename ${participant.label}`}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <label className="space-y-1">
+                  <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Display
+                  </span>
+                  <select
+                    value={options.traceMode}
                     onChange={(event) =>
                       onUpdateParticipant(participant.participant_id, {
-                        label: event.target.value,
+                        traceMode: event.target.value as MapTraceMode,
                       })
                     }
-                    className="min-w-0 flex-1 rounded-md border border-border/50 bg-card/60 px-2 py-1 text-xs font-semibold text-foreground outline-none transition focus:border-primary"
-                    aria-label={`Rename ${participant.label}`}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <label className="space-y-1">
-                    <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Display
-                    </span>
-                    <select
-                      value={options.traceMode}
-                      onChange={(event) =>
-                        onUpdateParticipant(participant.participant_id, {
-                          traceMode: event.target.value as MapTraceMode,
-                        })
-                      }
-                      className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
-                    >
-                      {MULTIPLAYER_TRACE_MODES.map((mode) => (
-                        <option key={mode.value} value={mode.value}>
-                          {mode.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Color
-                    </span>
-                    <select
-                      value={options.lineColor}
-                      onChange={(event) =>
-                        onUpdateParticipant(participant.participant_id, {
-                          lineColor: event.target.value as MapLineColor,
-                        })
-                      }
-                      className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
-                    >
-                      {MULTIPLAYER_COLOR_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <label className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={options.showLabel}
+                    className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
+                  >
+                    {MULTIPLAYER_TRACE_MODES.map((mode) => (
+                      <option key={mode.value} value={mode.value}>
+                        {mode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Color
+                  </span>
+                  <select
+                    value={options.lineColor}
                     onChange={(event) =>
                       onUpdateParticipant(participant.participant_id, {
-                        showLabel: event.target.checked,
+                        lineColor: event.target.value as MapLineColor,
                       })
                     }
-                    className="h-3.5 w-3.5 accent-primary"
-                  />
-                  Show label
+                    className="h-7 w-full rounded-md border border-border/50 bg-card/60 px-2 text-xs text-foreground outline-none focus:border-primary"
+                  >
+                    {MULTIPLAYER_COLOR_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
-            );
-          })}
+              <label className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={options.showLabel}
+                  onChange={(event) =>
+                    onUpdateParticipant(participant.participant_id, {
+                      showLabel: event.target.checked,
+                    })
+                  }
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                Show label
+              </label>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -2119,7 +2208,8 @@ function SidebarActivityLibrary({
               ) : null}
             </div>
             <div className="mt-1 truncate text-[10px] text-muted-foreground">
-              Autosaved {formatSavedAt(record.updated_at)} · {record.session.segments.length} segments
+              Autosaved {formatSavedAt(record.updated_at)} · {record.session.segments.length}{" "}
+              segments
             </div>
             <div className="mt-1 truncate text-[10px] text-muted-foreground/80">
               {record.edited_manually ? "Edited manually" : "Auto-detected"} ·{" "}
@@ -2183,7 +2273,8 @@ function ActivityEditDialog({
   const canApply = data.points.length > 1 && endIdx > startIdx;
 
   const setStart = (idx: number) => setCropStartIdx(clampNumber(idx, 0, Math.max(0, endIdx - 1)));
-  const setEnd = (idx: number) => setCropEndIdx(clampNumber(idx, Math.min(maxIdx, startIdx + 1), maxIdx));
+  const setEnd = (idx: number) =>
+    setCropEndIdx(clampNumber(idx, Math.min(maxIdx, startIdx + 1), maxIdx));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2260,8 +2351,8 @@ function ActivityEditDialog({
 
           <div className="flex items-center justify-between gap-3 rounded-xl bg-secondary/25 p-3">
             <div className="text-xs text-muted-foreground">
-              Cropping applies to the current reviewed session, recalculates activity stats, and keeps
-              only segments that overlap the new activity window.
+              Cropping applies to the current reviewed session, recalculates activity stats, and
+              keeps only segments that overlap the new activity window.
             </div>
             <Button
               type="button"
@@ -2426,7 +2517,11 @@ function ExpandedMapPlaybackControls({
   );
 }
 
-function getFocusGraphEndIdx(segments: SessionSegment[], selectedIndex: number, pointCount: number) {
+function getFocusGraphEndIdx(
+  segments: SessionSegment[],
+  selectedIndex: number,
+  pointCount: number,
+) {
   if (selectedIndex < 0) return Math.max(0, pointCount - 1);
   const selected = segments[selectedIndex];
   const next = segments[selectedIndex + 1];
@@ -2482,7 +2577,9 @@ function ExportMenu({
         >
           <FileJson className="mt-0.5 h-4 w-4 text-muted-foreground" />
           <span>
-            <span className="block text-xs font-semibold text-foreground">Export boundaries JSON</span>
+            <span className="block text-xs font-semibold text-foreground">
+              Export boundaries JSON
+            </span>
             <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">
               Download corrected segment boundaries for evaluator fixtures.
             </span>
@@ -2560,8 +2657,8 @@ function ActivityLibraryMenu({
                     ) : null}
                   </div>
                   <div className="mt-1 truncate text-[10px] text-muted-foreground">
-                    Autosaved {formatSavedAt(record.updated_at)} ·{" "}
-                    {record.session.segments.length} segments
+                    Autosaved {formatSavedAt(record.updated_at)} · {record.session.segments.length}{" "}
+                    segments
                   </div>
                   <div className="mt-1 truncate text-[10px] text-muted-foreground/80">
                     {record.edited_manually ? "Edited manually" : "Auto-detected"} ·{" "}
@@ -2745,7 +2842,9 @@ function buildSessionSummaryFromPoints(
   };
 }
 
-function calculateHeartRateStats(points: SessionPoint[]): SessionData["summary"]["heart_rate_stats"] {
+function calculateHeartRateStats(
+  points: SessionPoint[],
+): SessionData["summary"]["heart_rate_stats"] {
   const samples = points
     .map((point) => point.heart_rate_bpm)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -2887,15 +2986,15 @@ function isLocalActivityRecord(value: unknown): value is LocalActivityRecord {
   const candidate = value as Partial<LocalActivityRecord>;
   return Boolean(
     typeof candidate.id === "string" &&
-      typeof candidate.activity_name === "string" &&
-      typeof candidate.uploaded_at === "string" &&
-      typeof candidate.updated_at === "string" &&
-      candidate.session &&
-      Array.isArray(candidate.session.points) &&
+    typeof candidate.activity_name === "string" &&
+    typeof candidate.uploaded_at === "string" &&
+    typeof candidate.updated_at === "string" &&
+    candidate.session &&
+    Array.isArray(candidate.session.points) &&
     Array.isArray(candidate.session.segments) &&
-      Array.isArray(candidate.manual_segment_ids) &&
-      Array.isArray(candidate.map_elements ?? []) &&
-      candidate.map_display_options,
+    Array.isArray(candidate.manual_segment_ids) &&
+    Array.isArray(candidate.map_elements ?? []) &&
+    candidate.map_display_options,
   );
 }
 
@@ -3033,7 +3132,8 @@ function buildSessionShellFromMultiplayer(
   playbackWindow: MultiplayerPlaybackWindow | null = null,
 ): SessionData {
   const startMs = new Date(playbackWindow?.startTime ?? multiplayer.playback.start_time).getTime();
-  const durationS = playbackWindow?.durationS ?? Math.max(1, Math.ceil(multiplayer.playback.duration_s));
+  const durationS =
+    playbackWindow?.durationS ?? Math.max(1, Math.ceil(multiplayer.playback.duration_s));
   const origin = multiplayer.summary.origin;
   // Non-overlapping activities can span days; cap the synthetic timeline so we
   // never allocate millions of shell points. The playhead-to-seconds mapping
