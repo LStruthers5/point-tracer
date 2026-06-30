@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { UnitSystem } from "@/types/app-settings";
-import type { FieldMapElement, MapElement, PinMapElement } from "@/types/map-elements";
+import type { MapElement, PinMapElement } from "@/types/map-elements";
 import type { SessionPoint, SessionSegment } from "@/types/session";
-import { buildFieldZoneStats } from "@/lib/field-zones";
 import { formatDistance, formatDuration, formatSpeed } from "@/lib/format";
 import {
   buildSegmentPerformanceInsights,
@@ -122,17 +121,9 @@ export function SegmentAnalyticsPanel({
   const focalPoint = mapElements.find(
     (element): element is PinMapElement => element.type === "focal",
   );
-  const fieldWithZones = mapElements.find(
-    (element): element is FieldMapElement =>
-      element.type === "field" && Boolean(element.zoneSet?.zones.length),
-  );
   const restXY = restPoint ? elementToSessionXY(restPoint.position, points) : null;
   const focalXY = focalPoint ? elementToSessionXY(focalPoint.position, points) : null;
   const segmentPointMask = buildSegmentPointMask(points.length, segments);
-  const zoneStats = useMemo(
-    () => (fieldWithZones ? buildFieldZoneStats(points, fieldWithZones) : null),
-    [fieldWithZones, points],
-  );
   const performanceInsights = useMemo(
     () => buildSegmentPerformanceInsights(points, segments, restXY),
     [points, restXY, segments],
@@ -224,50 +215,6 @@ export function SegmentAnalyticsPanel({
         </div>
       )}
 
-      {zoneStats ? (
-        <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/5 p-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-emerald-200">{zoneStats.zoneSetLabel}</div>
-              <div className="text-xs text-muted-foreground">
-                {zoneStats.fieldLabel} positional split by custom field areas
-              </div>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {formatDuration(zoneStats.totalZoneTimeS)} tracked inside zones
-            </div>
-          </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
-            {zoneStats.zones.map((stat) => (
-              <div
-                key={stat.zone.id}
-                className="rounded-lg border border-border/55 bg-background/55 p-3"
-                style={{ borderColor: stat.zone.color ? `${stat.zone.color}55` : undefined }}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: stat.zone.color ?? "#22c55e" }}
-                  />
-                  <div className="min-w-0 truncate text-xs font-semibold text-foreground">
-                    {stat.zone.label}
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                  <ZoneStat label="Time" value={formatDuration(stat.timeS)} />
-                  <ZoneStat label="Share" value={formatPercent(stat.percentZoneTime)} />
-                  <ZoneStat label="Distance" value={formatDistance(stat.distanceM, units)} />
-                  <ZoneStat
-                    label="Avg speed"
-                    value={formatNullableSpeed(stat.avgSpeedMps, units)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <div className="overflow-x-auto rounded-xl border border-border/70">
         <table className="w-full min-w-[880px] border-collapse text-left text-sm">
           <thead className="bg-secondary/50 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -350,17 +297,6 @@ export function SegmentAnalyticsPanel({
         </table>
       </div>
     </section>
-  );
-}
-
-function ZoneStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-0.5 font-mono text-[11px] font-semibold text-foreground">{value}</div>
-    </div>
   );
 }
 
