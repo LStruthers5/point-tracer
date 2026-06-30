@@ -507,7 +507,7 @@ function FieldZoneEditor({
   }, [element.id, element.zoneSet?.prompt]);
 
   return (
-    <div className="absolute left-3 top-20 z-[900] w-[min(calc(100%-1.5rem),22rem)] rounded-xl border border-border/65 bg-background/94 p-3 text-foreground shadow-2xl backdrop-blur">
+    <div className="absolute left-3 right-3 top-20 z-[900] max-w-sm rounded-xl border border-border/65 bg-background/94 p-3 text-foreground shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
