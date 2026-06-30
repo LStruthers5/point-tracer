@@ -1,23 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Crosshair, Map as MapIcon, Pin, Plus, X } from "lucide-react";
-import {
-  MapContainer,
-  TileLayer,
-  Polyline,
-  CircleMarker,
-  Pane,
-  Tooltip,
-  useMap,
-  useMapEvents,
-} from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Pane, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import type {
-  MultiplayerSessionData,
-  SessionPoint,
-  SessionSegment,
-  SegmentBbox,
-} from "@/types/session";
+import type { MultiplayerSessionData, SessionPoint, SessionSegment, SegmentBbox } from "@/types/session";
 import type {
   MapBasemapStyle,
   MapDisplayOptions,
@@ -25,16 +11,8 @@ import type {
   MapTraceMode,
   MultiplayerParticipantDisplayOptions,
 } from "@/types/map-display";
-import type {
-  CourtTemplate,
-  FieldMapElement,
-  FieldZone,
-  MapElement,
-  MapElementType,
-  PinMapElement,
-} from "@/types/map-elements";
+import type { CourtTemplate, FieldMapElement, MapElement, MapElementType, PinMapElement } from "@/types/map-elements";
 import { COURT_TEMPLATES } from "@/lib/court-templates";
-import { buildZoneSetFromPrompt, getDefaultZoneSet } from "@/lib/field-zones";
 import {
   getMapSingleColorGradientStops,
   getMapSpeedGradientStops,
@@ -169,7 +147,10 @@ export function SessionMapClient({
     () => multiplayerSession?.participants.flatMap((participant) => participant.points) ?? [],
     [multiplayerSession],
   );
-  const segmentedPoints = useMemo(() => getSegmentedPoints(points, segments), [points, segments]);
+  const segmentedPoints = useMemo(
+    () => getSegmentedPoints(points, segments),
+    [points, segments],
+  );
   const mapDataPoints =
     multiplayerPoints.length > 0
       ? multiplayerPoints
@@ -219,10 +200,7 @@ export function SessionMapClient({
   const currentSpeedMps = playbackPoint?.speed_smooth_mps ?? playbackPoint?.speed_mps ?? null;
   const showSpeedLegend = displayOptions.colorMode === "speed" && routeMode.showSpeedLegend;
   const showHeatmapLegend = routeMode.showHeatmap;
-  const availableBasemapStyles = useMemo(
-    () => ["street", "satellite", "dark"] as MapBasemapStyle[],
-    [],
-  );
+  const availableBasemapStyles = useMemo(() => ["street", "satellite", "dark"] as MapBasemapStyle[], []);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-2xl">
@@ -422,30 +400,30 @@ export function SessionMapClient({
       ) : null}
 
       <div className="pointer-events-none absolute right-4 top-4 z-[900] w-32 space-y-1.5">
-        {playbackPoint ? (
-          <div className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 shadow-lg backdrop-blur">
-            <div className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">
-              Current pace
+          {playbackPoint ? (
+            <div className="rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 shadow-lg backdrop-blur">
+              <div className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">
+                Current pace
+              </div>
+              <div className="mt-0.5 font-mono text-[11px] font-semibold text-foreground">
+                {formatNullableSpeed(currentSpeedMps, units)}
+              </div>
             </div>
-            <div className="mt-0.5 font-mono text-[11px] font-semibold text-foreground">
-              {formatNullableSpeed(currentSpeedMps, units)}
-            </div>
-          </div>
-        ) : null}
-        {showSpeedLegend ? <MapSpeedLegend displayOptions={displayOptions} /> : null}
-        {showHeatmapLegend ? <HeatmapLegend displayOptions={displayOptions} /> : null}
-        <button
-          type="button"
-          onClick={() => {
-            setElementPickerOpen(true);
-            setPlacingElementType(null);
-          }}
-          className="pointer-events-auto flex w-full items-center justify-center gap-1 rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
-        >
-          <Plus className="h-3 w-3" />
-          Add element
-        </button>
-      </div>
+          ) : null}
+          {showSpeedLegend ? <MapSpeedLegend displayOptions={displayOptions} /> : null}
+          {showHeatmapLegend ? <HeatmapLegend displayOptions={displayOptions} /> : null}
+          <button
+            type="button"
+            onClick={() => {
+              setElementPickerOpen(true);
+              setPlacingElementType(null);
+            }}
+            className="pointer-events-auto flex w-full items-center justify-center gap-1 rounded-lg border border-border/55 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold text-foreground shadow-lg backdrop-blur transition hover:border-primary/70"
+          >
+            <Plus className="h-3 w-3" />
+            Add element
+          </button>
+        </div>
 
       <BasemapStyleControl
         value={basemapStyle}
@@ -454,145 +432,18 @@ export function SessionMapClient({
         onChange={onBasemapStyleChange}
       />
 
-      {selectedMapElement?.type === "field" ? (
-        <FieldZoneEditor
-          element={selectedMapElement}
-          onChange={(nextElement) => {
-            onMapElementsChange(
-              mapElements.map((element) => (element.id === nextElement.id ? nextElement : element)),
-            );
-          }}
-          onDelete={() => {
-            onMapElementsChange(
-              mapElements.filter((element) => element.id !== selectedMapElement.id),
-            );
-            setSelectedMapElementId(null);
-          }}
-        />
-      ) : selectedMapElement ? (
+      {selectedMapElement ? (
         <button
           type="button"
           onClick={() => {
-            onMapElementsChange(
-              mapElements.filter((element) => element.id !== selectedMapElement.id),
-            );
+            onMapElementsChange(mapElements.filter((element) => element.id !== selectedMapElement.id));
             setSelectedMapElementId(null);
           }}
-          className="absolute left-4 top-32 z-[900] rounded-lg border border-destructive/35 bg-background/90 px-2.5 py-1.5 text-[10px] font-semibold text-destructive shadow-lg backdrop-blur transition hover:bg-destructive/10"
-        >
-          Delete marker
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function FieldZoneEditor({
-  element,
-  onChange,
-  onDelete,
-}: {
-  element: FieldMapElement;
-  onChange: (element: FieldMapElement) => void;
-  onDelete: () => void;
-}) {
-  const [prompt, setPrompt] = useState(
-    element.zoneSet?.prompt ?? "left lane, middle stack, right lane and end zones",
-  );
-  const defaultZoneSet = getDefaultZoneSet(element.template);
-  const zones = element.zoneSet?.zones ?? [];
-
-  useEffect(() => {
-    setPrompt(element.zoneSet?.prompt ?? "left lane, middle stack, right lane and end zones");
-  }, [element.id, element.zoneSet?.prompt]);
-
-  return (
-    <div className="absolute left-3 right-3 top-20 z-[900] max-w-sm rounded-xl border border-border/65 bg-background/94 p-3 text-foreground shadow-2xl backdrop-blur">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Field zones
-          </div>
-          <div className="mt-0.5 text-sm font-semibold">{element.label}</div>
-        </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded-md border border-destructive/35 px-2 py-1 text-[10px] font-semibold text-destructive transition hover:bg-destructive/10"
-        >
-          Delete
-        </button>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {defaultZoneSet ? (
-          <button
-            type="button"
-            onClick={() => onChange({ ...element, zoneSet: defaultZoneSet })}
-            className="rounded-md border border-primary/35 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary transition hover:bg-primary/15"
-          >
-            Sport preset
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() =>
-            onChange({
-              ...element,
-              zoneSet: buildZoneSetFromPrompt("left lane, middle, right lane", element.template),
-            })
-          }
-          className="rounded-md border border-border/70 px-2 py-1 text-[10px] font-semibold text-foreground transition hover:bg-secondary"
-        >
-          Lane thirds
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange({ ...element, zoneSet: undefined })}
-          className="rounded-md border border-border/70 px-2 py-1 text-[10px] font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-        >
-          Clear
-        </button>
-      </div>
-
-      <label className="mt-3 block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-        Describe layout
-      </label>
-      <textarea
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        rows={3}
-        className="mt-1.5 w-full resize-none rounded-lg border border-border/65 bg-background/80 px-2.5 py-2 text-xs leading-relaxed text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/60"
-        placeholder="Try: zones: handler reset, middle stack, deep space"
-      />
-      <button
-        type="button"
-        onClick={() =>
-          onChange({ ...element, zoneSet: buildZoneSetFromPrompt(prompt, element.template) })
-        }
-        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary/14 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
+        className="absolute left-4 top-32 z-[900] rounded-lg border border-destructive/35 bg-background/90 px-2.5 py-1.5 text-[10px] font-semibold text-destructive shadow-lg backdrop-blur transition hover:bg-destructive/10"
       >
-        <Plus className="h-3.5 w-3.5" />
-        Generate zones
+        Delete {selectedMapElement.type === "field" ? "field" : "marker"}
       </button>
-
-      {zones.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {zones.map((zone) => (
-            <span
-              key={zone.id}
-              className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-              style={{ borderColor: zone.color ? `${zone.color}88` : undefined }}
-            >
-              {zone.label}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-3 rounded-lg border border-border/55 bg-secondary/35 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-          Add zones to compare time, distance, and speed by field area.
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -635,8 +486,7 @@ function MultiplayerReplayOverlay({
     <>
       {session.participants.map((participant, index) => {
         const options = participantDisplayOptions[participant.participant_id];
-        const lineColor =
-          options?.lineColor ?? MULTIPLAYER_COLORS[index % MULTIPLAYER_COLORS.length];
+        const lineColor = options?.lineColor ?? MULTIPLAYER_COLORS[index % MULTIPLAYER_COLORS.length];
         const color = MAP_LINE_COLORS[lineColor];
         const traceMode = options?.traceMode ?? defaultTraceMode;
         const label = options?.label?.trim() || participant.label;
@@ -652,26 +502,16 @@ function MultiplayerReplayOverlay({
         const showHeatmap = traceMode === "heatmap";
         const isEdgePaused = current?.status === "before_start" || current?.status === "after_end";
         const isInternalGap = current?.status === "gap";
-        const showRouteContext =
-          traceMode !== "none" && !showHeatmap && !isEdgePaused && !isInternalGap;
+        const showRouteContext = traceMode !== "none" && !showHeatmap && !isEdgePaused && !isInternalGap;
         const showFullContext = traceMode === "full";
         const showStreak = traceMode === "streak";
         const routePoints =
           showRouteContext && participant.points.length >= 2
-            ? getMultiplayerRoutePoints(
-                participant.points,
-                previousIdx,
-                showFullContext,
-                showStreak,
-              )
+            ? getMultiplayerRoutePoints(participant.points, previousIdx, showFullContext, showStreak)
             : [];
 
         return (
-          <Pane
-            key={participant.participant_id}
-            name={`multiplayer-${participant.participant_id}`}
-            style={{ zIndex: 680 + index }}
-          >
+          <Pane key={participant.participant_id} name={`multiplayer-${participant.participant_id}`} style={{ zIndex: 680 + index }}>
             {showHeatmap ? (
               <HeatmapCanvas
                 points={participant.points}
@@ -806,12 +646,7 @@ function MapElementPicker({
     ? [matchedTemplate, "generic"]
     : (["soccer", "basketball", "ultimate", "tennis", "squash", "generic"] as CourtTemplate[]);
 
-  const gridCols =
-    templatesToShow.length <= 3
-      ? "sm:grid-cols-3"
-      : templatesToShow.length <= 4
-        ? "sm:grid-cols-4"
-        : "sm:grid-cols-6";
+  const gridCols = templatesToShow.length <= 3 ? "sm:grid-cols-3" : templatesToShow.length <= 4 ? "sm:grid-cols-4" : "sm:grid-cols-6";
 
   return (
     <div className="absolute inset-0 z-[940] flex items-center justify-center p-6">
@@ -829,27 +664,29 @@ function MapElementPicker({
           Court &amp; field
         </div>
         <div className={`mb-4 grid grid-cols-2 gap-3 ${gridCols}`}>
-          {templatesToShow.map((template) => {
-            const spec = COURT_TEMPLATES[template];
-            return (
-              <button
-                key={template}
-                type="button"
-                onClick={() => onSelect("field", template)}
-                className="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-background/88 px-3 py-4 text-center shadow-2xl backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-background/95"
-              >
-                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-primary/35 bg-primary/12 transition group-hover:bg-primary/18">
-                  <CourtIcon template={template} className="h-5 w-5 text-primary" />
-                </div>
-                <div className="text-[11px] font-semibold leading-tight text-foreground">
-                  {spec.label}
-                </div>
-                <div className="mt-1 text-[9px] leading-snug text-muted-foreground">
-                  {spec.widthM}×{spec.heightM} m
-                </div>
-              </button>
-            );
-          })}
+          {templatesToShow.map(
+            (template) => {
+              const spec = COURT_TEMPLATES[template];
+              return (
+                <button
+                  key={template}
+                  type="button"
+                  onClick={() => onSelect("field", template)}
+                  className="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-background/88 px-3 py-4 text-center shadow-2xl backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-background/95"
+                >
+                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-primary/35 bg-primary/12 transition group-hover:bg-primary/18">
+                    <CourtIcon template={template} className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="text-[11px] font-semibold leading-tight text-foreground">
+                    {spec.label}
+                  </div>
+                  <div className="mt-1 text-[9px] leading-snug text-muted-foreground">
+                    {spec.widthM}×{spec.heightM} m
+                  </div>
+                </button>
+              );
+            },
+          )}
         </div>
 
         <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-white/50">
@@ -878,13 +715,7 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
   // Simple SVG representations of each court/field shape
   if (template === "soccer") {
     return (
-      <svg
-        viewBox="0 0 20 14"
-        className={className}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
+      <svg viewBox="0 0 20 14" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1" width="18" height="12" rx="0.5" />
         <line x1="10" y1="1" x2="10" y2="13" />
         <circle cx="10" cy="7" r="2.5" />
@@ -895,13 +726,7 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
   }
   if (template === "basketball") {
     return (
-      <svg
-        viewBox="0 0 20 12"
-        className={className}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
+      <svg viewBox="0 0 20 12" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1" width="18" height="10" rx="0.5" />
         <line x1="10" y1="1" x2="10" y2="11" />
         <circle cx="10" cy="6" r="2" />
@@ -912,13 +737,7 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
   }
   if (template === "ultimate") {
     return (
-      <svg
-        viewBox="0 0 20 10"
-        className={className}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
+      <svg viewBox="0 0 20 10" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1" width="18" height="8" rx="0.5" />
         <line x1="4.5" y1="1" x2="4.5" y2="9" />
         <line x1="15.5" y1="1" x2="15.5" y2="9" />
@@ -927,13 +746,7 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
   }
   if (template === "tennis") {
     return (
-      <svg
-        viewBox="0 0 20 12"
-        className={className}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
+      <svg viewBox="0 0 20 12" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1" width="18" height="10" rx="0.5" />
         <line x1="10" y1="1" x2="10" y2="11" />
         <line x1="1" y1="3" x2="19" y2="3" />
@@ -945,13 +758,7 @@ function CourtIcon({ template, className }: { template: CourtTemplate; className
   }
   if (template === "squash") {
     return (
-      <svg
-        viewBox="0 0 14 20"
-        className={className}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
+      <svg viewBox="0 0 14 20" className={className} fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1" width="12" height="18" rx="0.5" />
         {/* short line */}
         <line x1="1" y1="8" x2="13" y2="8" />
@@ -1013,7 +820,6 @@ function createMapElement(
       heightM: spec.heightM,
       rotationDeg: 0,
       template,
-      zoneSet: getDefaultZoneSet(template),
     };
   }
 
@@ -1112,14 +918,7 @@ function FieldElementShape({
   const widthPx = element.widthM / metersPerPixel;
   const heightPx = element.heightM / metersPerPixel;
   const corners = getRotatedRectPoints(center.x, center.y, widthPx, heightPx, element.rotationDeg);
-  const topCenter = rotatePoint(
-    center.x,
-    center.y - heightPx / 2 - 34,
-    center.x,
-    center.y,
-    element.rotationDeg,
-  );
-  const zones = element.zoneSet?.zones ?? [];
+  const topCenter = rotatePoint(center.x, center.y - heightPx / 2 - 34, center.x, center.y, element.rotationDeg);
 
   const startDrag = (
     event: React.PointerEvent,
@@ -1154,8 +953,7 @@ function FieldElementShape({
       ]);
 
       if (mode === "rotate") {
-        const angle =
-          (Math.atan2(pointer.y - currentCenter.y, pointer.x - currentCenter.x) * 180) / Math.PI;
+        const angle = (Math.atan2(pointer.y - currentCenter.y, pointer.x - currentCenter.x) * 180) / Math.PI;
         onChange({ ...startElement, rotationDeg: angle + 90 });
         return;
       }
@@ -1183,12 +981,10 @@ function FieldElementShape({
       const adjustedDraggedLocal = {
         x:
           oppositeCorner.x +
-          directionX *
-            Math.max(minSizePx, Math.abs(draggedLocal.x - currentCenter.x - oppositeCorner.x)),
+          directionX * Math.max(minSizePx, Math.abs(draggedLocal.x - currentCenter.x - oppositeCorner.x)),
         y:
           oppositeCorner.y +
-          directionY *
-            Math.max(minSizePx, Math.abs(draggedLocal.y - currentCenter.y - oppositeCorner.y)),
+          directionY * Math.max(minSizePx, Math.abs(draggedLocal.y - currentCenter.y - oppositeCorner.y)),
       };
       const nextCenterLocal = {
         x: (oppositeCorner.x + adjustedDraggedLocal.x) / 2,
@@ -1202,14 +998,8 @@ function FieldElementShape({
         startElement.rotationDeg,
       );
       const nextCenterLatLng = map.containerPointToLatLng([nextCenterPoint.x, nextCenterPoint.y]);
-      const nextWidth = Math.max(
-        8,
-        Math.abs(adjustedDraggedLocal.x - oppositeCorner.x) * metersPerPixel,
-      );
-      const nextHeight = Math.max(
-        8,
-        Math.abs(adjustedDraggedLocal.y - oppositeCorner.y) * metersPerPixel,
-      );
+      const nextWidth = Math.max(8, Math.abs(adjustedDraggedLocal.x - oppositeCorner.x) * metersPerPixel);
+      const nextHeight = Math.max(8, Math.abs(adjustedDraggedLocal.y - oppositeCorner.y) * metersPerPixel);
 
       onChange({
         ...startElement,
@@ -1244,37 +1034,6 @@ function FieldElementShape({
         strokeLinejoin="round"
         onPointerDown={(event) => startDrag(event, "move")}
       />
-      {zones.map((zone) => {
-        const zoneCorners = getZoneRectPoints(zone, center, widthPx, heightPx, element.rotationDeg);
-        const labelPoint = getZoneLabelPoint(zone, center, widthPx, heightPx, element.rotationDeg);
-
-        return (
-          <g key={zone.id}>
-            <polygon
-              points={zoneCorners.map((point) => `${point.x},${point.y}`).join(" ")}
-              fill={hexToRgba(zone.color ?? "#22c55e", selected ? 0.2 : 0.13)}
-              stroke={hexToRgba(zone.color ?? "#22c55e", selected ? 0.75 : 0.45)}
-              strokeWidth={selected ? 1.4 : 0.9}
-              className="pointer-events-none"
-            />
-            {selected ? (
-              <text
-                x={labelPoint.x}
-                y={labelPoint.y}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="pointer-events-none select-none text-[10px] font-semibold"
-                fill="rgba(255,255,255,0.9)"
-                stroke="rgba(3,7,18,0.72)"
-                strokeWidth={3}
-                paintOrder="stroke"
-              >
-                {zone.label}
-              </text>
-            ) : null}
-          </g>
-        );
-      })}
       {markings.map((marking, i) => (
         <polyline
           key={i}
@@ -1465,42 +1224,6 @@ function getRotatedRectPoints(
   ];
 }
 
-function getZoneRectPoints(
-  zone: FieldZone,
-  center: { x: number; y: number },
-  width: number,
-  height: number,
-  rotationDeg: number,
-) {
-  const left = center.x + (zone.x0 - 0.5) * width;
-  const right = center.x + (zone.x1 - 0.5) * width;
-  const top = center.y + (zone.y0 - 0.5) * height;
-  const bottom = center.y + (zone.y1 - 0.5) * height;
-
-  return [
-    rotatePoint(left, top, center.x, center.y, rotationDeg),
-    rotatePoint(right, top, center.x, center.y, rotationDeg),
-    rotatePoint(right, bottom, center.x, center.y, rotationDeg),
-    rotatePoint(left, bottom, center.x, center.y, rotationDeg),
-  ];
-}
-
-function getZoneLabelPoint(
-  zone: FieldZone,
-  center: { x: number; y: number },
-  width: number,
-  height: number,
-  rotationDeg: number,
-) {
-  return rotatePoint(
-    center.x + ((zone.x0 + zone.x1) / 2 - 0.5) * width,
-    center.y + ((zone.y0 + zone.y1) / 2 - 0.5) * height,
-    center.x,
-    center.y,
-    rotationDeg,
-  );
-}
-
 function rotatePoint(x: number, y: number, centerX: number, centerY: number, rotationDeg: number) {
   const angle = (rotationDeg * Math.PI) / 180;
   const cos = Math.cos(angle);
@@ -1512,12 +1235,6 @@ function rotatePoint(x: number, y: number, centerX: number, centerY: number, rot
     x: centerX + dx * cos - dy * sin,
     y: centerY + dx * sin + dy * cos,
   };
-}
-
-function hexToRgba(hex: string, alpha: number) {
-  const parsed = parseHexColor(hex);
-  if (!parsed) return `rgba(34,197,94,${alpha})`;
-  return `rgba(${parsed.r},${parsed.g},${parsed.b},${alpha})`;
 }
 
 function BasemapStyleControl({
@@ -1664,10 +1381,7 @@ function getSegmentStartPreviewPoints(points: SessionPoint[], segment: SessionSe
     const elapsedS = (new Date(point.t).getTime() - startTime) / 1000;
     distanceM += Math.hypot(point.x_m - previous.x_m, point.y_m - previous.y_m);
 
-    if (
-      elapsedS > STREAK_START_PREVIEW_FADE_SECONDS ||
-      distanceM > STREAK_START_PREVIEW_MAX_METERS
-    ) {
+    if (elapsedS > STREAK_START_PREVIEW_FADE_SECONDS || distanceM > STREAK_START_PREVIEW_MAX_METERS) {
       break;
     }
 
@@ -1732,10 +1446,7 @@ function getFocusedTrailPoints(
 
   const tailLength = Math.min(
     STREAK_POINTS,
-    Math.max(
-      3,
-      Math.round(3 + Math.min(1, playbackIdx / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3)),
-    ),
+    Math.max(3, Math.round(3 + Math.min(1, playbackIdx / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3))),
   );
   return points.slice(Math.max(selectedSegment.start_idx, endIdx - tailLength + 1), endIdx + 1);
 }
@@ -1748,12 +1459,7 @@ function getDynamicStreakLength(segments: SessionSegment[], playheadIdx: number)
     const progressFromStart = playheadIdx - containing.start_idx;
     return Math.min(
       STREAK_POINTS,
-      Math.max(
-        3,
-        Math.round(
-          3 + Math.min(1, progressFromStart / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3),
-        ),
-      ),
+      Math.max(3, Math.round(3 + Math.min(1, progressFromStart / STREAK_LEAD_IN_POINTS) * (STREAK_POINTS - 3))),
     );
   }
 
@@ -1984,7 +1690,11 @@ function getHeatmapDetail(zoom: number): HeatmapDetail {
   };
 }
 
-function buildHeatmapCells(points: SessionPoint[], map: ReturnType<typeof useMap>, cellPx: number) {
+function buildHeatmapCells(
+  points: SessionPoint[],
+  map: ReturnType<typeof useMap>,
+  cellPx: number,
+) {
   const cells = new Map<string, HeatmapCell>();
 
   for (const point of points) {
@@ -2276,7 +1986,11 @@ function HeatmapLegend({ displayOptions }: { displayOptions: MapDisplayOptions }
 function getBrightHeatmapGradientStops(lineColor: MapLineColor) {
   const [light, base, dark] = getMapSingleColorGradientStops(lineColor);
 
-  return [mixHex(light, base, 0.28), mixHex(light, base, 0.74), mixHex(base, dark, 0.38)];
+  return [
+    mixHex(light, base, 0.28),
+    mixHex(light, base, 0.74),
+    mixHex(base, dark, 0.38),
+  ];
 }
 
 function hexToRgba(hex: string, alpha: number) {

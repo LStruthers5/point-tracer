@@ -9,6 +9,7 @@ import {
   type SegmentPerformanceInsight,
   type XYPoint,
 } from "@/lib/recovery-performance";
+import { FieldZoneStats } from "@/components/FieldZoneStats";
 
 const NEAR_POINT_METERS = 10;
 const COLUMN_STORAGE_KEY = "pointtracer.analyticsColumns.v2";
@@ -115,12 +116,8 @@ export function SegmentAnalyticsPanel({
   const [columnSettings, setColumnSettings] = useState<AnalyticsColumnSettings>(() =>
     loadColumnSettings(),
   );
-  const restPoint = mapElements.find(
-    (element): element is PinMapElement => element.type === "bench",
-  );
-  const focalPoint = mapElements.find(
-    (element): element is PinMapElement => element.type === "focal",
-  );
+  const restPoint = mapElements.find((element): element is PinMapElement => element.type === "bench");
+  const focalPoint = mapElements.find((element): element is PinMapElement => element.type === "focal");
   const restXY = restPoint ? elementToSessionXY(restPoint.position, points) : null;
   const focalXY = focalPoint ? elementToSessionXY(focalPoint.position, points) : null;
   const segmentPointMask = buildSegmentPointMask(points.length, segments);
@@ -135,9 +132,7 @@ export function SegmentAnalyticsPanel({
   const restSummary = restXY ? buildRestSummary(points, segmentPointMask, restXY) : null;
   const focalSummary = focalXY ? buildFocalSummary(points, focalXY) : null;
   const recoverySummary = buildRecoverySummary(splitStats);
-  const hasRecoveryStats = splitStats.some(
-    (stat) => stat.hrEndBpm !== null || stat.hrDropBpm !== null,
-  );
+  const hasRecoveryStats = splitStats.some((stat) => stat.hrEndBpm !== null || stat.hrDropBpm !== null);
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -145,6 +140,8 @@ export function SegmentAnalyticsPanel({
   }, [columnSettings]);
 
   return (
+    <div className="space-y-3">
+    <FieldZoneStats points={points} sessionPoints={points} mapElements={mapElements} />
     <section className="glass-card rounded-2xl p-5 space-y-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -166,10 +163,7 @@ export function SegmentAnalyticsPanel({
               subtitle="Reset behavior between segments"
               stats={[
                 { label: "Time near rest", value: formatDuration(restSummary.timeNearRestS) },
-                {
-                  label: "% time near rest",
-                  value: formatPercent(restSummary.percentNonSegmentNearRest),
-                },
+                { label: "% time near rest", value: formatPercent(restSummary.percentNonSegmentNearRest) },
                 { label: "Rest visits", value: String(restSummary.restVisits) },
               ]}
             />
@@ -181,10 +175,7 @@ export function SegmentAnalyticsPanel({
               stats={[
                 { label: "% time near focal", value: formatPercent(focalSummary.percentNearFocal) },
                 { label: "Focal visits", value: String(focalSummary.focalVisits) },
-                {
-                  label: "Avg speed near focal",
-                  value: formatNullableSpeed(focalSummary.avgSpeedNearFocalMps, units),
-                },
+                { label: "Avg speed near focal", value: formatNullableSpeed(focalSummary.avgSpeedNearFocalMps, units) },
               ]}
             />
           ) : null}
@@ -194,14 +185,8 @@ export function SegmentAnalyticsPanel({
               subtitle="How recovery behavior connects to the next effort"
               tone="heart"
               stats={[
-                {
-                  label: "Avg recovery score",
-                  value: formatNullableScore(recoverySummary.avgRecoveryScore),
-                },
-                {
-                  label: "Avg performance",
-                  value: formatNullableScore(recoverySummary.avgPerformanceScore),
-                },
+                { label: "Avg recovery score", value: formatNullableScore(recoverySummary.avgRecoveryScore) },
+                { label: "Avg performance", value: formatNullableScore(recoverySummary.avgPerformanceScore) },
                 { label: "Most common recovery", value: recoverySummary.primaryRecoveryType },
                 { label: "Fatigue trend", value: recoverySummary.fatigueTrend },
               ]}
@@ -267,9 +252,7 @@ export function SegmentAnalyticsPanel({
                 >
                   <Td>
                     <div className="font-semibold text-foreground">{stat.segment.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {stat.segment.point_count} pts
-                    </div>
+                    <div className="text-xs text-muted-foreground">{stat.segment.point_count} pts</div>
                   </Td>
                   <Td>{formatDuration(stat.segment.duration_s)}</Td>
                   <Td>{formatDistance(stat.segment.distance_m, units)}</Td>
@@ -297,6 +280,7 @@ export function SegmentAnalyticsPanel({
         </table>
       </div>
     </section>
+    </div>
   );
 }
 
@@ -314,24 +298,20 @@ function AnalyticsSummaryCard({
   return (
     <div
       className={`rounded-xl border p-4 ${
-        tone === "heart" ? "border-red-400/25 bg-red-500/5" : "border-border/60 bg-secondary/35"
+        tone === "heart"
+          ? "border-red-400/25 bg-red-500/5"
+          : "border-border/60 bg-secondary/35"
       }`}
     >
-      <div
-        className={`text-sm font-semibold ${tone === "heart" ? "text-red-300" : "text-foreground"}`}
-      >
+      <div className={`text-sm font-semibold ${tone === "heart" ? "text-red-300" : "text-foreground"}`}>
         {title}
       </div>
       <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.map((stat) => (
           <div key={stat.label}>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {stat.label}
-            </div>
-            <div
-              className={`mt-1 text-sm font-semibold ${tone === "heart" ? "text-red-300" : "text-foreground"}`}
-            >
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{stat.label}</div>
+            <div className={`mt-1 text-sm font-semibold ${tone === "heart" ? "text-red-300" : "text-foreground"}`}>
               {stat.value}
             </div>
           </div>
@@ -381,13 +361,7 @@ function ConfigurableTh<T extends string>({
   );
 }
 
-function Td({
-  children,
-  className = "text-muted-foreground",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+function Td({ children, className = "text-muted-foreground" }: { children: ReactNode; className?: string }) {
   return <td className={`px-4 py-3 ${className}`}>{children}</td>;
 }
 
@@ -401,8 +375,9 @@ function buildSplitStats(
   return segments.map((segment) => {
     const insight = findSegmentInsight(performanceInsights, segment.segment_id);
     const segmentPoints = points.slice(segment.start_idx, segment.end_idx + 1);
-    const previousSegment =
-      [...segments].reverse().find((candidate) => candidate.end_idx < segment.start_idx) ?? null;
+    const previousSegment = [...segments]
+      .reverse()
+      .find((candidate) => candidate.end_idx < segment.start_idx) ?? null;
     const beforeSegmentStartIdx = previousSegment ? previousSegment.end_idx + 1 : 0;
     const beforeSegmentPoints = points.slice(beforeSegmentStartIdx, segment.start_idx);
     const focalNearS = focalXY ? timeNearPoint(segmentPoints, focalXY) : null;
@@ -424,8 +399,7 @@ function buildSplitStats(
       avgSpeedNearFocalMps: focalXY ? averageSpeedNearPoint(segmentPoints, focalXY) : null,
       restBeforeSegmentS: restBeforeS,
       timeNearRestS: restNearS,
-      percentNearRest:
-        restNearS !== null && segment.duration_s > 0 ? restNearS / segment.duration_s : null,
+      percentNearRest: restNearS !== null && segment.duration_s > 0 ? restNearS / segment.duration_s : null,
       restVisits: restXY
         ? countNearVisits(beforeSegmentPoints, restXY, { minDurationS: 8, mergeGapS: 20 })
         : null,
@@ -604,10 +578,7 @@ function isRecoveryColumnKey(value: unknown): value is RecoveryColumnKey {
   return RECOVERY_COLUMN_OPTIONS.some((option) => option.key === value);
 }
 
-function elementToSessionXY(
-  position: { lat: number; lon: number },
-  points: SessionPoint[],
-): XYPoint | null {
+function elementToSessionXY(position: { lat: number; lon: number }, points: SessionPoint[]): XYPoint | null {
   const origin = points[0];
   if (!origin) return null;
 
@@ -687,7 +658,10 @@ function countNearVisits(
     const isNear = included && distanceTo(point, target) <= NEAR_POINT_METERS;
 
     if (isNear) {
-      if (lastNearPoint && secondsBetween(lastNearPoint, point) > options.mergeGapS) {
+      if (
+        lastNearPoint &&
+        secondsBetween(lastNearPoint, point) > options.mergeGapS
+      ) {
         closeVisit();
       }
       visitStart ??= point;
