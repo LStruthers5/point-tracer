@@ -301,6 +301,11 @@ function Index() {
 
   const segments = data?.segments ?? EMPTY_SEGMENTS;
   const selectedSegment = segments.find((s) => s.segment_id === selectedSegmentId) ?? null;
+
+  // Persona signal: entered the focus-segment (deep analysis) view.
+  useEffect(() => {
+    if (!showFullRoute && selectedSegmentId != null) track("segment_focused");
+  }, [showFullRoute, selectedSegmentId]);
   const selectedIndex = useMemo(
     () => segments.findIndex((s) => s.segment_id === selectedSegmentId),
     [segments, selectedSegmentId],
@@ -333,6 +338,26 @@ function Index() {
     selectedSegmentId,
     settings.defaultPlaybackSpeed,
   );
+
+  // High-frequency interactions (play, graph seeks) are tracked once per
+  // activity+key so repeated clicks don't inflate counts — we want "did they
+  // engage this feature", not raw click volume.
+  const oncePerActivityRef = useRef<Set<string>>(new Set());
+  const trackOncePerActivity = (event: string, properties?: Record<string, unknown>) => {
+    const key = `${activeActivityId ?? "none"}:${event}:${JSON.stringify(properties ?? {})}`;
+    if (oncePerActivityRef.current.has(key)) return;
+    oncePerActivityRef.current.add(key);
+    track(event, properties);
+  };
+  const playSession = () => {
+    trackOncePerActivity("playback_started", { mode: "session" });
+    sessionPlayback.play();
+  };
+  const playSegment = () => {
+    trackOncePerActivity("playback_started", { mode: "segment" });
+    playback.play();
+  };
+
   const focusedPreviewOffset =
     selectedSegment &&
     graphPreviewIdx != null &&
@@ -349,6 +374,11 @@ function Index() {
   }, [activeMultiplayerWindow, multiplayerSession]);
 
   const updateMapDisplayOptions = (options: MapDisplayOptions) => {
+    // Report which map-display setting the user actually touched.
+    const changed = (Object.keys(options) as Array<keyof MapDisplayOptions>).filter(
+      (key) => options[key] !== mapDisplayOptions[key],
+    );
+    if (changed.length > 0) track("map_display_changed", { setting: changed.join(",") });
     setSettings((current) => ({
       ...current,
       defaultTraceMode: options.traceMode,
@@ -385,8 +415,8 @@ function Index() {
     });
   };
 
-  const handleUploaded = (next: SessionData) => {
-    track("activity_uploaded", { sport: next.sport, segments: next.segments.length });
+  const handleUploaded = (next: SessionData, source: "file" | "strava" = "file") => {
+    track("activity_uploaded", { sport: next.sport, segments: next.segments.length, source });
     setMultiplayerSession(null);
     setMultiplayerDisplayOptions({});
     setMultiplayerOverlapOnly(false);
@@ -532,6 +562,7 @@ function Index() {
     setAddPlayerError(null);
     try {
       const count = await loadGroupSession(activeGroupId);
+      if (count && count > 1) track("group_players_synced", { participants: count });
       setAddPlayerSuccess(count && count > 1 ? `${count} players synced` : "No new players yet");
     } catch (error) {
       setAddPlayerError(error instanceof Error ? error.message : "Could not sync players");
@@ -779,6 +810,7 @@ function Index() {
   };
 
   const seekSessionGraphPoint = (idx: number) => {
+    trackOncePerActivity("graph_interacted", { view: "session" });
     sessionPlayback.seek(idx);
   };
 
@@ -786,10 +818,12 @@ function Index() {
     if (!selectedSegment) return;
     if (idx < selectedSegment.start_idx || idx > selectedSegment.end_idx) return;
 
+    trackOncePerActivity("graph_interacted", { view: "segment" });
     playback.seek(idx - selectedSegment.start_idx);
   };
 
   const openLocalActivity = (record: LocalActivityRecord) => {
+    track("opened_from_library", { sport: record.sport });
     const savedMultiplayerSession = record.multiplayer_session ?? null;
     setMultiplayerSession(savedMultiplayerSession);
     setMultiplayerDisplayOptions(
@@ -941,6 +975,7 @@ function Index() {
 
   const exportCorrectedBoundaries = () => {
     if (!data) return;
+    track("export_used", { kind: "boundaries" });
 
     const payload = {
       activity_name: data.activity_name,
@@ -981,10 +1016,14 @@ function Index() {
   const trainingConsentBanner =
     data && !settings.trainingConsentPrompted ? (
       <TrainingConsentBanner
-        onAllow={() =>
-          setSettings((s) => ({ ...s, shareTrainingData: true, trainingConsentPrompted: true }))
-        }
-        onDismiss={() => setSettings((s) => ({ ...s, trainingConsentPrompted: true }))}
+        onAllow={() => {
+          track("training_consent", { choice: "allow" });
+          setSettings((s) => ({ ...s, shareTrainingData: true, trainingConsentPrompted: true }));
+        }}
+        onDismiss={() => {
+          track("training_consent", { choice: "dismiss" });
+          setSettings((s) => ({ ...s, trainingConsentPrompted: true }));
+        }}
       />
     ) : null;
 
@@ -1000,7 +1039,10 @@ function Index() {
           <div className="flex items-center gap-1.5">
             <ExportMenu
               disabled={!data}
-              onExportVideo={() => setExportVideoOpen(true)}
+              onExportVideo={() => {
+                track("export_used", { kind: "video" });
+                setExportVideoOpen(true);
+              }}
               onExportBoundaries={exportCorrectedBoundaries}
             />
             <SettingsMenu settings={settings} onChange={setSettings} />
@@ -1128,7 +1170,7 @@ function Index() {
                     manualSegmentIds={manualSegmentIds}
                     onSelect={handleSelectTimelineSegment}
                     onHover={setHoveredSegmentId}
-                    onPlay={sessionPlayback.play}
+                    onPlay={playSession}
                     onPause={sessionPlayback.pause}
                     onRestart={sessionPlayback.restart}
                     onSeek={sessionPlayback.seek}
@@ -1150,7 +1192,7 @@ function Index() {
                       idx={playback.idx}
                       totalPoints={totalPoints}
                       speed={playback.speed}
-                      onPlay={playback.play}
+                      onPlay={playSegment}
                       onPause={playback.pause}
                       onRestart={playback.restart}
                       onPrev={() => goToSegment(-1)}
@@ -1203,7 +1245,13 @@ function Index() {
                 type="button"
                 onClick={() => {
                   const pb = showFullRoute ? sessionPlayback : playback;
-                  pb.playing ? pb.pause() : pb.play();
+                  if (pb.playing) {
+                    pb.pause();
+                  } else if (showFullRoute) {
+                    playSession();
+                  } else {
+                    playSegment();
+                  }
                 }}
                 className="absolute bottom-5 left-1/2 z-[950] -translate-x-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition active:scale-95 pulse-glow"
                 aria-label={
@@ -1302,7 +1350,10 @@ function Index() {
           </button>
           <ExportMenu
             disabled={!data}
-            onExportVideo={() => setExportVideoOpen(true)}
+            onExportVideo={() => {
+                track("export_used", { kind: "video" });
+                setExportVideoOpen(true);
+              }}
             onExportBoundaries={exportCorrectedBoundaries}
           />
           <SettingsMenu settings={settings} onChange={setSettings} />
@@ -1456,7 +1507,7 @@ function Index() {
                         manualSegmentIds={manualSegmentIds}
                         onSelect={handleSelectTimelineSegment}
                         onHover={setHoveredSegmentId}
-                        onPlay={sessionPlayback.play}
+                        onPlay={playSession}
                         onPause={sessionPlayback.pause}
                         onRestart={sessionPlayback.restart}
                         onSeek={sessionPlayback.seek}
@@ -1486,7 +1537,7 @@ function Index() {
                         idx={playback.idx}
                         totalPoints={totalPoints}
                         speed={playback.speed}
-                        onPlay={playback.play}
+                        onPlay={playSegment}
                         onPause={playback.pause}
                         onRestart={playback.restart}
                         onPrev={() => goToSegment(-1)}
@@ -1622,7 +1673,7 @@ function Index() {
               durationS={
                 showFullRoute ? data.summary.duration_min * 60 : (selectedSegment?.duration_s ?? 0)
               }
-              onPlay={showFullRoute ? sessionPlayback.play : playback.play}
+              onPlay={showFullRoute ? playSession : playSegment}
               onPause={showFullRoute ? sessionPlayback.pause : playback.pause}
               onRestart={showFullRoute ? sessionPlayback.restart : playback.restart}
               onSeek={showFullRoute ? sessionPlayback.seek : playback.seek}

@@ -10,6 +10,7 @@ import {
   type XYPoint,
 } from "@/lib/recovery-performance";
 import { FieldZoneStats } from "@/components/FieldZoneStats";
+import { track } from "@/lib/analytics";
 
 const NEAR_POINT_METERS = 10;
 const COLUMN_STORAGE_KEY = "pointtracer.analyticsColumns.v2";
@@ -216,7 +217,10 @@ export function SegmentAnalyticsPanel({
                   label={labelForOption(FOCAL_COLUMN_OPTIONS, columnSettings.focal)}
                   value={columnSettings.focal}
                   options={FOCAL_COLUMN_OPTIONS}
-                  onChange={(focal) => setColumnSettings((current) => ({ ...current, focal }))}
+                  onChange={(focal) => {
+                    track("analytics_table_customized", { group: "focal", column: focal });
+                    setColumnSettings((current) => ({ ...current, focal }));
+                  }}
                 />
               ) : null}
               {restXY ? (
@@ -224,7 +228,10 @@ export function SegmentAnalyticsPanel({
                   label={labelForOption(REST_COLUMN_OPTIONS, columnSettings.rest)}
                   value={columnSettings.rest}
                   options={REST_COLUMN_OPTIONS}
-                  onChange={(rest) => setColumnSettings((current) => ({ ...current, rest }))}
+                  onChange={(rest) => {
+                    track("analytics_table_customized", { group: "rest", column: rest });
+                    setColumnSettings((current) => ({ ...current, rest }));
+                  }}
                 />
               ) : null}
               {hasRecoveryStats ? (
@@ -232,9 +239,10 @@ export function SegmentAnalyticsPanel({
                   label={labelForOption(RECOVERY_COLUMN_OPTIONS, columnSettings.recovery)}
                   value={columnSettings.recovery}
                   options={RECOVERY_COLUMN_OPTIONS}
-                  onChange={(recovery) =>
-                    setColumnSettings((current) => ({ ...current, recovery }))
-                  }
+                  onChange={(recovery) => {
+                    track("analytics_table_customized", { group: "recovery", column: recovery });
+                    setColumnSettings((current) => ({ ...current, recovery }));
+                  }}
                 />
               ) : null}
             </tr>

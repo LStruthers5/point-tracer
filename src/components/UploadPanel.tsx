@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { GpxTutorialDialog } from "@/components/GpxFileGuide";
 import type { UnitSystem } from "@/types/app-settings";
 import type { SessionData } from "@/types/session";
+import { track } from "@/lib/analytics";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -53,7 +54,7 @@ const METERS_PER_KILOMETER = 1000;
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 interface UploadPanelProps {
-  onUploaded: (data: SessionData) => void;
+  onUploaded: (data: SessionData, source?: "file" | "strava") => void;
   units: UnitSystem;
   variant?: "toolbar" | "onboarding";
 }
@@ -184,9 +185,10 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
         throw new Error(await readError(res, "Upload failed"));
       }
       const data = (await res.json()) as SessionData;
-      onUploaded(data);
+      onUploaded(data, "file");
       setSuccess(true);
     } catch (e) {
+      track("upload_failed", { source: "file" });
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setLoading(false);
@@ -305,10 +307,11 @@ export function UploadPanel({ onUploaded, units, variant = "toolbar" }: UploadPa
         throw new Error(await readError(res, "Strava import failed"));
       }
       const data = (await res.json()) as SessionData;
-      onUploaded(data);
+      onUploaded(data, "strava");
       setSuccess(true);
       setShowStravaPicker(false);
     } catch (e) {
+      track("upload_failed", { source: "strava" });
       setError(e instanceof Error ? e.message : "Strava import failed");
     } finally {
       setStravaImportingId(null);

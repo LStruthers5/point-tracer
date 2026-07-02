@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import type { MapElement } from "@/types/map-elements";
 import type { SessionPoint } from "@/types/session";
 import { COURT_TEMPLATES } from "@/lib/court-templates";
 import { computeFieldZoneBreakdown, findSportField } from "@/lib/field-zones";
 import { formatDuration } from "@/lib/format";
+import { track } from "@/lib/analytics";
 
 interface FieldZoneStatsProps {
   /** Points to analyze (a segment slice or the whole session). */
@@ -15,10 +17,16 @@ interface FieldZoneStatsProps {
 export function FieldZoneStats({ points, sessionPoints, mapElements }: FieldZoneStatsProps) {
   const field = findSportField(mapElements);
   const origin = sessionPoints[0];
-  if (!field || !origin) return null;
+  const breakdown = field && origin ? computeFieldZoneBreakdown(points, field, origin) : null;
+  const template = field?.template ?? null;
+  const hasBreakdown = Boolean(breakdown);
 
-  const breakdown = computeFieldZoneBreakdown(points, field, origin);
-  if (!breakdown) return null;
+  // Persona signal: the user actually saw zone analytics (not just placed a field).
+  useEffect(() => {
+    if (hasBreakdown && template) track("field_zone_viewed", { template });
+  }, [hasBreakdown, template]);
+
+  if (!field || !breakdown) return null;
 
   const sportLabel = field.template ? COURT_TEMPLATES[field.template].label : "Field";
 

@@ -16,6 +16,22 @@ const POSTHOG_HOST =
 
 let enabled = false;
 
+const ANON_ID_KEY = "pointtracer.anonId";
+
+/**
+ * Stable anonymous user id (random UUID in localStorage — no PII). Identifying
+ * with it turns on per-user views in PostHog: retention curves, behavioral
+ * cohorts/personas, paths, and stickiness, while keeping users anonymous.
+ */
+function getAnonId(): string {
+  let id = localStorage.getItem(ANON_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(ANON_ID_KEY, id);
+  }
+  return id;
+}
+
 export function initAnalytics(): void {
   if (enabled || typeof window === "undefined" || !POSTHOG_KEY) return;
   posthog.init(POSTHOG_KEY, {
@@ -25,6 +41,11 @@ export function initAnalytics(): void {
     capture_performance: false,
     person_profiles: "identified_only",
   });
+  try {
+    posthog.identify(getAnonId());
+  } catch {
+    // localStorage unavailable (private mode etc.) — stay anonymous.
+  }
   enabled = true;
 }
 
