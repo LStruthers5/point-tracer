@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowRight, Info, Loader2, Upload, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { track } from "@/lib/analytics";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -38,7 +39,10 @@ function JoinPage() {
         }
         if (!res.ok) throw new Error();
         const data = (await res.json()) as GroupStatus;
-        if (!cancelled) setStatus(data);
+        if (!cancelled) {
+          setStatus(data);
+          track("invite_join_viewed", { sport: data.sport ?? "unknown" });
+        }
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -66,8 +70,10 @@ function JoinPage() {
         throw new Error(await readError(res));
       }
       // Success — open the combined replay in the main app.
+      track("invite_joined");
       window.location.assign(`/?group=${groupId}`);
     } catch (err) {
+      track("join_failed");
       setError(err instanceof Error ? err.message : "Could not join this replay.");
       setJoining(false);
       if (fileInputRef.current) fileInputRef.current.value = "";

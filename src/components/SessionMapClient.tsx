@@ -20,6 +20,7 @@ import {
 } from "@/types/map-display";
 import type { ThemeMode, UnitSystem } from "@/types/app-settings";
 import { formatSpeed } from "@/lib/format";
+import { track } from "@/lib/analytics";
 import { getMultiplayerPlaybackSnapshot } from "@/lib/multiplayer-playback";
 
 const DEFAULT_ZOOM = 17;
@@ -230,6 +231,10 @@ export function SessionMapClient({
           placingType={placingElementType}
           onPlace={(lat, lon) => {
             const nextElement = createMapElement(placingElementType, lat, lon, placingTemplate);
+            track("map_element_placed", {
+              type: nextElement.type,
+              template: placingTemplate ?? null,
+            });
             onMapElementsChange([...mapElements, nextElement]);
             setSelectedMapElementId(nextElement.id);
             setPlacingElementType(null);
